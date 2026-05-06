@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}RagDoc{% endblock %}</title>
+  {% for css_url in asset_css_urls('src/main.js') %}
+  <link rel="stylesheet" href="{{ css_url }}">
+  {% endfor %}
+  <script src="{{ asset_url('src/main.js') }}" defer></script>
+</head>
+<body class="bg-stone-50 text-zinc-950">
+  <nav class="border-b border-zinc-200 bg-white">
+    <div class="mx-auto flex max-w-6xl items-center justify-between px-4 py-4">
+      <a href="/" class="font-semibold tracking-normal">RagDoc</a>
+      <div class="flex items-center gap-4 text-sm">
+        <a href="/rag/" class="text-zinc-700 hover:text-zinc-950">RAG topics</a>
+        <a href="/rag/pipeline" class="text-zinc-700 hover:text-zinc-950">Pipeline</a>
+        <a href="/prompts/" class="text-zinc-700 hover:text-zinc-950">Prompts</a>
+        <a href="/api/health" class="text-emerald-700 hover:text-emerald-900">API</a>
+      </div>
+    </div>
+  </nav>
+  <main class="mx-auto max-w-6xl p-4 sm:p-6">
+    {% block content %}{% endblock %}
+  </main>
+</body>
+</html>

@@ -1,0 +1,10 @@
+__pycache__/
+*.py[cod]
+instance/*.db
+.env
+.venv/
+venv/
+node_modules/
+npm-debug.log*
+app/static/vite/
+!app/static/vite/.gitkeep

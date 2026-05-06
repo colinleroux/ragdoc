@@ -1,0 +1,58 @@
+services:
+  ollama:
+    image: ollama/ollama:latest
+    container_name: AI-ollama
+    volumes:
+      - ollama:/root/.ollama
+    restart: unless-stopped
+
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: AI-qdrant
+    volumes:
+      - qdrant:/qdrant/storage
+    restart: unless-stopped
+
+  web:
+    build:
+      context: .
+      target: backend
+    container_name: AIRAG-web
+    environment:
+      FLASK_APP: wsgi_app.py
+      SECRET_KEY: change-me
+      SQLALCHEMY_DATABASE_URI: sqlite:////app/instance/app.db
+      OLLAMA_BASE_URL: http://ollama:11434
+      QDRANT_URL: http://qdrant:6333
+      MODEL_NAME: dolphin3:latest
+      EMBED_MODEL: nomic-embed-text
+      DOCS_PATH: /app/docs
+      PYTHONUNBUFFERED: "1"
+    expose:
+      - "8000"
+    volumes:
+      - ./instance:/app/instance
+      - ./docs:/app/docs:ro
+    depends_on:
+      - ollama
+      - qdrant
+    command: >
+      sh -c "flask --app wsgi_app.py db upgrade &&
+             gunicorn --bind 0.0.0.0:8000 --workers 2 --threads 4 --timeout 300 wsgi_app:application"
+    restart: unless-stopped
+
+  nginx:
+    build:
+      context: .
+      target: nginx
+    container_name: AIRAG-nginx
+    depends_on:
+      - web
+    ports:
+      # Change to "80:80" when you want standard HTTP on host port 80.
+      - "8050:80"
+    restart: unless-stopped
+
+volumes:
+  ollama:
+  qdrant:

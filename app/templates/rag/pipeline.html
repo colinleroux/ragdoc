@@ -1,0 +1,738 @@
+{% extends "layout.html" %}
+{% block title %}Pipeline Status{% endblock %}
+{% block content %}
+<section
+  class="py-6"
+  x-data='pipelineStatus({{ pipeline_config|tojson }})'
+  x-init="init()"
+>
+  <div class="mb-6 flex flex-col gap-4 border-b border-zinc-200 pb-5 lg:flex-row lg:items-end lg:justify-between">
+    <div>
+      <a href="/rag/" class="text-sm font-medium text-emerald-700 hover:text-emerald-900">Back to RAG topics</a>
+      <h1 class="mt-3 text-3xl font-bold text-zinc-950">Pipeline Status</h1>
+    </div>
+    <div class="flex flex-wrap gap-2">
+      <button
+        type="button"
+        class="rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm font-medium text-zinc-800 shadow-sm transition hover:border-zinc-400 disabled:cursor-not-allowed disabled:opacity-60"
+        :disabled="loading"
+        @click="refresh()"
+      >
+        Refresh
+      </button>
+    </div>
+  </div>
+
+  <div
+    class="mb-5 border-l-4 px-4 py-3 text-sm"
+    :class="noticeType === 'error' ? 'border-red-500 bg-red-50 text-red-800' : 'border-emerald-500 bg-emerald-50 text-emerald-800'"
+    x-show="notice"
+    x-cloak
+  >
+    <span x-text="notice"></span>
+  </div>
+
+  <section class="mt-5 border border-zinc-200 bg-white shadow-sm">
+    <div class="border-b border-zinc-200 px-4 py-3">
+      <div class="grid grid-cols-3 gap-2">
+        <button
+          type="button"
+          class="px-3 py-2 text-sm font-medium transition"
+          :class="activeTab === 'setup' ? 'bg-zinc-900 text-white' : 'border border-zinc-300 bg-white text-zinc-800 hover:border-zinc-400'"
+          @click="setTab('setup')"
+        >
+          Setup
+        </button>
+        <button
+          type="button"
+          class="px-3 py-2 text-sm font-medium transition"
+          :class="activeTab === 'inputs' ? 'bg-zinc-900 text-white' : 'border border-zinc-300 bg-white text-zinc-800 hover:border-zinc-400'"
+          @click="setTab('inputs')"
+        >
+          Inputs
+        </button>
+        <button
+          type="button"
+          class="px-3 py-2 text-sm font-medium transition"
+          :class="activeTab === 'query' ? 'bg-zinc-900 text-white' : 'border border-zinc-300 bg-white text-zinc-800 hover:border-zinc-400'"
+          @click="setTab('query')"
+        >
+          Query
+        </button>
+      </div>
+    </div>
+  </section>
+
+  <section class="mt-5" x-show="activeTab === 'setup'" x-cloak>
+    <div class="grid gap-5 lg:grid-cols-[minmax(0,1fr)_320px]">
+      <aside class="border border-zinc-200 bg-white p-4 shadow-sm">
+      <div class="flex items-start justify-between gap-3">
+        <div>
+          <h2 class="text-lg font-semibold text-zinc-950">Pipeline Setup</h2>
+          <p class="mt-1 text-sm text-zinc-600">Defaults come from compose or environment values. Saved changes here override them for the running app.</p>
+        </div>
+        <span
+          class="rounded-full px-2 py-1 text-xs font-medium"
+          :class="config.has_overrides ? 'bg-amber-100 text-amber-800' : 'bg-zinc-100 text-zinc-700'"
+          x-text="config.has_overrides ? 'Overrides active' : 'Using defaults'"
+        ></span>
+      </div>
+
+      <div class="mt-4 space-y-3 text-sm">
+        <div>
+          <label class="text-xs font-medium uppercase text-zinc-500" for="docs-path">Docs path</label>
+          <input id="docs-path" type="text" class="mt-1 w-full border border-zinc-300 px-3 py-2 text-sm" x-model="draftConfig.docs_path">
+        </div>
+        <div>
+          <label class="text-xs font-medium uppercase text-zinc-500" for="collection-name">Collection</label>
+          <input id="collection-name" type="text" class="mt-1 w-full border border-zinc-300 px-3 py-2 text-sm" x-model="draftConfig.collection">
+        </div>
+        <div>
+          <label class="text-xs font-medium uppercase text-zinc-500" for="generation-model">Generation model</label>
+          <input id="generation-model" list="generation-models" type="text" class="mt-1 w-full border border-zinc-300 px-3 py-2 text-sm" x-model="draftConfig.model">
+          <datalist id="generation-models">
+            <template x-for="item in modelOptions.installed" :key="`installed-gen-${item.name}`">
+              <option :value="item.name"></option>
+            </template>
+            <template x-for="item in modelOptions.recommended.generation" :key="`recommended-gen-${item.name}`">
+              <option :value="item.name"></option>
+            </template>
+          </datalist>
+        </div>
+        <div>
+          <label class="text-xs font-medium uppercase text-zinc-500" for="embedding-model">Embedding model</label>
+          <input id="embedding-model" list="embedding-models" type="text" class="mt-1 w-full border border-zinc-300 px-3 py-2 text-sm" x-model="draftConfig.embed_model">
+          <datalist id="embedding-models">
+            <template x-for="item in modelOptions.installed" :key="`installed-embed-${item.name}`">
+              <option :value="item.name"></option>
+            </template>
+            <template x-for="item in modelOptions.recommended.embedding" :key="`recommended-embed-${item.name}`">
+              <option :value="item.name"></option>
+            </template>
+          </datalist>
+        </div>
+        <div>
+          <label class="text-xs font-medium uppercase text-zinc-500" for="ollama-url">Ollama URL</label>
+          <input id="ollama-url" type="text" class="mt-1 w-full border border-zinc-300 px-3 py-2 text-sm" x-model="draftConfig.ollama_url">
+        </div>
+        <div>
+          <label class="text-xs font-medium uppercase text-zinc-500" for="qdrant-url">Qdrant URL</label>
+          <input id="qdrant-url" type="text" class="mt-1 w-full border border-zinc-300 px-3 py-2 text-sm" x-model="draftConfig.qdrant_url">
+        </div>
+      </div>
+
+      <div class="mt-4 flex flex-wrap gap-2">
+        <button
+          type="button"
+          class="rounded-md border border-sky-700 bg-sky-700 px-3 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-sky-800 disabled:cursor-not-allowed disabled:opacity-60"
+          :disabled="setupRunning"
+          @click="setupModels()"
+        >
+          Setup Models
+        </button>
+        <button
+          type="button"
+          class="rounded-md border border-emerald-700 bg-emerald-700 px-3 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-emerald-800 disabled:cursor-not-allowed disabled:opacity-60"
+          :disabled="configSaving"
+          @click="savePipelineConfig()"
+        >
+          Save Settings
+        </button>
+        <button
+          type="button"
+          class="rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm font-medium text-zinc-800 shadow-sm transition hover:border-zinc-400 disabled:cursor-not-allowed disabled:opacity-60"
+          :disabled="configChecking"
+          @click="checkPipelineConfig()"
+        >
+          Check Settings
+        </button>
+        <button
+          type="button"
+          class="rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm font-medium text-zinc-800 shadow-sm transition hover:border-zinc-400 disabled:cursor-not-allowed disabled:opacity-60"
+          :disabled="configSaving"
+          @click="resetPipelineConfig()"
+        >
+          Reset to Defaults
+        </button>
+      </div>
+
+      <section class="mt-4 border border-zinc-200 bg-zinc-50 p-3" x-show="pipelineCheck" x-cloak>
+        <div class="flex items-start justify-between gap-3">
+          <h3 class="text-sm font-semibold uppercase text-zinc-700">Pipeline Check</h3>
+          <span class="text-xs text-zinc-500" x-show="configChecking">Checking</span>
+        </div>
+        <div class="mt-3 space-y-3 text-sm">
+          <div class="border border-zinc-200 bg-white p-3">
+            <p class="font-semibold text-zinc-950">Docs Path</p>
+            <p class="mt-1 break-words text-zinc-700" x-text="pipelineCheck?.docs_path?.value"></p>
+            <p class="mt-2 text-xs" :class="pipelineCheck?.docs_path?.exists && pipelineCheck?.docs_path?.is_dir ? 'text-emerald-700' : 'text-red-700'">
+              <span x-show="pipelineCheck?.docs_path?.exists && pipelineCheck?.docs_path?.is_dir">Path exists and is readable by the app.</span>
+              <span x-show="!pipelineCheck?.docs_path?.exists || !pipelineCheck?.docs_path?.is_dir">Path is missing or not a directory from the app's point of view.</span>
+            </p>
+          </div>
+
+          <div class="border border-zinc-200 bg-white p-3">
+            <p class="font-semibold text-zinc-950">Ollama</p>
+            <p class="mt-1 break-words text-zinc-700" x-text="pipelineCheck?.ollama?.url"></p>
+            <p class="mt-2 text-xs" :class="pipelineCheck?.ollama?.reachable ? 'text-emerald-700' : 'text-red-700'">
+              <span x-show="pipelineCheck?.ollama?.reachable">Ollama is reachable and responded to model listing.</span>
+              <span x-show="!pipelineCheck?.ollama?.reachable">Ollama is not reachable from the web app.</span>
+            </p>
+            <p class="mt-2 text-xs text-zinc-600">
+              Generation model:
+              <span class="font-medium text-zinc-900" x-text="pipelineCheck?.ollama?.generation_model"></span>
+              <span x-text="pipelineCheck?.ollama?.generation_installed ? ' - installed' : ' - not installed yet'"></span>
+            </p>
+            <p class="mt-1 text-xs text-zinc-600">
+              Embedding model:
+              <span class="font-medium text-zinc-900" x-text="pipelineCheck?.ollama?.embedding_model"></span>
+              <span x-text="pipelineCheck?.ollama?.embedding_installed ? ' - installed' : ' - not installed yet'"></span>
+            </p>
+            <p class="mt-2 text-xs text-red-700" x-show="pipelineCheck?.ollama?.error" x-text="pipelineCheck?.ollama?.error"></p>
+          </div>
+
+          <div class="border border-zinc-200 bg-white p-3">
+            <p class="font-semibold text-zinc-950">Qdrant</p>
+            <p class="mt-1 break-words text-zinc-700" x-text="pipelineCheck?.qdrant?.url"></p>
+            <p class="mt-2 text-xs" :class="pipelineCheck?.qdrant?.reachable ? 'text-emerald-700' : 'text-red-700'">
+              <span x-show="pipelineCheck?.qdrant?.reachable">Qdrant is reachable.</span>
+              <span x-show="!pipelineCheck?.qdrant?.reachable">Qdrant is not reachable from the web app.</span>
+            </p>
+            <p class="mt-1 text-xs text-zinc-600">
+              Collection:
+              <span class="font-medium text-zinc-900" x-text="pipelineCheck?.qdrant?.collection"></span>
+              <span x-text="pipelineCheck?.qdrant?.collection_exists ? ' - exists' : ' - will be created on ingest'"></span>
+            </p>
+            <p class="mt-2 text-xs text-red-700" x-show="pipelineCheck?.qdrant?.error" x-text="pipelineCheck?.qdrant?.error"></p>
+          </div>
+
+          <div class="border border-sky-200 bg-sky-50 px-3 py-3 text-xs text-sky-900">
+            <template x-for="line in pipelineCheck?.summary || []" :key="line">
+              <p class="mt-1 first:mt-0" x-text="line"></p>
+            </template>
+          </div>
+        </div>
+      </section>
+
+      <div class="mt-5 border-t border-zinc-200 pt-4">
+        <h3 class="text-sm font-semibold uppercase text-zinc-600">Suggested Small Models</h3>
+        <p class="mt-1 text-xs text-zinc-500">These are current lightweight Ollama options we can experiment with locally.</p>
+        <div class="mt-3 space-y-2">
+          <template x-for="item in modelOptions.recommended.generation" :key="item.name">
+            <button type="button" class="w-full border border-zinc-200 bg-zinc-50 p-3 text-left transition hover:border-emerald-500 hover:bg-emerald-50" @click="usePipelineModel('generation', item.name)">
+              <div class="flex items-start justify-between gap-3">
+                <div>
+                  <p class="text-sm font-semibold text-zinc-950">
+                    <span x-text="item.name"></span>
+                    <span class="ml-2 text-xs font-medium text-emerald-700" x-show="item.installed">Installed</span>
+                  </p>
+                  <p class="mt-1 text-xs text-zinc-600"><span x-text="item.family"></span> <span x-text="`- ${item.size_label}`"></span></p>
+                  <p class="mt-2 text-sm text-zinc-700" x-text="item.notes"></p>
+                </div>
+              </div>
+            </button>
+          </template>
+        </div>
+        <div class="mt-4 space-y-2">
+          <template x-for="item in modelOptions.recommended.embedding" :key="item.name">
+            <button type="button" class="w-full border border-zinc-200 bg-zinc-50 p-3 text-left transition hover:border-sky-500 hover:bg-sky-50" @click="usePipelineModel('embedding', item.name)">
+              <p class="text-sm font-semibold text-zinc-950">
+                <span x-text="item.name"></span>
+                <span class="ml-2 text-xs font-medium text-sky-700" x-show="item.installed">Installed</span>
+              </p>
+              <p class="mt-1 text-xs text-zinc-600"><span x-text="item.family"></span> <span x-text="`- ${item.size_label}`"></span></p>
+              <p class="mt-2 text-sm text-zinc-700" x-text="item.notes"></p>
+            </button>
+          </template>
+        </div>
+        <div class="mt-4 border border-amber-200 bg-amber-50 px-3 py-3 text-xs text-amber-900">
+          Changing the embedding model or collection means your existing vectors no longer match the new setup. Reset and re-ingest before comparing retrieval quality.
+        </div>
+        <div class="mt-4" x-show="modelOptions.installed.length">
+          <h3 class="text-sm font-semibold uppercase text-zinc-600">Installed In Ollama</h3>
+          <div class="mt-2 flex flex-wrap gap-2">
+            <template x-for="item in modelOptions.installed" :key="`installed-pill-${item.name}`">
+              <span class="rounded-full border border-zinc-300 bg-zinc-50 px-2 py-1 text-xs text-zinc-700" x-text="item.name"></span>
+            </template>
+          </div>
+        </div>
+        <p class="mt-3 text-xs text-red-700" x-show="modelOptions.upstream_error" x-text="modelOptions.upstream_error"></p>
+      </div>
+      </aside>
+
+      <div class="space-y-5">
+        <section class="border border-sky-200 bg-white p-4 shadow-sm" x-show="setupRunning || setupProgress.status" x-cloak>
+          <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <h2 class="text-lg font-semibold text-zinc-950">Model Setup</h2>
+              <p class="mt-1 text-sm text-zinc-600">
+                <span x-text="setupProgress.model_type ? `${setupProgress.model_type} model` : 'Waiting for Ollama'"></span>
+                <span x-show="setupProgress.model" x-text="` - ${setupProgress.model}`"></span>
+              </p>
+            </div>
+            <p class="text-sm font-medium text-sky-800" x-text="setupProgress.status || 'Starting'"></p>
+          </div>
+          <div class="mt-4 grid gap-4 sm:grid-cols-2">
+            <div>
+              <div class="mb-1 flex items-center justify-between text-xs font-medium text-zinc-600">
+                <span>Current model</span>
+                <span x-text="`${setupProgress.model_percent ?? 0}%`"></span>
+              </div>
+              <div class="h-2 overflow-hidden rounded-full bg-zinc-100">
+                <div class="h-full rounded-full bg-sky-600 transition-all" :style="`width: ${setupProgress.model_percent ?? 0}%`"></div>
+              </div>
+            </div>
+            <div>
+              <div class="mb-1 flex items-center justify-between text-xs font-medium text-zinc-600">
+                <span>Overall</span>
+                <span x-text="`${setupProgress.overall_percent ?? 0}%`"></span>
+              </div>
+              <div class="h-2 overflow-hidden rounded-full bg-zinc-100">
+                <div class="h-full rounded-full bg-emerald-600 transition-all" :style="`width: ${setupProgress.overall_percent ?? 0}%`"></div>
+              </div>
+            </div>
+          </div>
+          <p class="mt-3 text-xs text-zinc-500" x-show="setupProgress.completed || setupProgress.total">
+            <span x-text="formatBytes(setupProgress.completed)"></span>
+            <span> / </span>
+            <span x-text="formatBytes(setupProgress.total)"></span>
+          </p>
+        </section>
+
+        <section class="border border-zinc-200 bg-white p-4 shadow-sm">
+          <h2 class="text-lg font-semibold text-zinc-950">Current Pipeline</h2>
+          <dl class="mt-4 space-y-3 text-sm">
+            <div>
+              <dt class="text-zinc-500">Generation model</dt>
+              <dd class="mt-1 font-medium text-zinc-900" x-text="config.model"></dd>
+            </div>
+            <div>
+              <dt class="text-zinc-500">Embedding model</dt>
+              <dd class="mt-1 font-medium text-zinc-900" x-text="config.embed_model"></dd>
+            </div>
+            <div>
+              <dt class="text-zinc-500">Ollama</dt>
+              <dd class="mt-1 break-words font-medium text-zinc-900" x-text="config.ollama_url"></dd>
+            </div>
+            <div>
+              <dt class="text-zinc-500">Qdrant</dt>
+              <dd class="mt-1 break-words font-medium text-zinc-900" x-text="config.qdrant_url"></dd>
+            </div>
+          </dl>
+        </section>
+
+        <section class="border border-zinc-200 bg-white p-4 shadow-sm">
+          <div class="flex items-start justify-between gap-3">
+            <div>
+              <h2 class="text-lg font-semibold text-zinc-950">Ollama Runtime</h2>
+              <p class="mt-1 text-sm text-zinc-600">This shows whether the running Ollama server appears to be using GPU memory right now.</p>
+            </div>
+            <span
+              class="rounded-full px-2 py-1 text-xs font-medium"
+              :class="ollamaRuntime?.gpu_state === 'active'
+                ? 'bg-emerald-100 text-emerald-800'
+                : ollamaRuntime?.gpu_state === 'not_detected'
+                  ? 'bg-amber-100 text-amber-800'
+                  : 'bg-zinc-100 text-zinc-700'"
+              x-text="ollamaRuntime?.gpu_state === 'active'
+                ? 'GPU active'
+                : ollamaRuntime?.gpu_state === 'not_detected'
+                  ? 'CPU only'
+                  : ollamaRuntime?.gpu_state === 'idle'
+                    ? 'Idle'
+                    : 'Unknown'"
+            ></span>
+          </div>
+          <dl class="mt-4 space-y-3 text-sm">
+            <div>
+              <dt class="text-zinc-500">Ollama URL</dt>
+              <dd class="mt-1 break-words font-medium text-zinc-900" x-text="ollamaRuntime?.ollama_url || config.ollama_url"></dd>
+            </div>
+            <div>
+              <dt class="text-zinc-500">Reachability</dt>
+              <dd class="mt-1 font-medium" :class="ollamaRuntime?.reachable ? 'text-emerald-800' : 'text-red-700'" x-text="ollamaRuntime?.reachable ? 'reachable' : 'not reachable'"></dd>
+            </div>
+            <div>
+              <dt class="text-zinc-500">Running models</dt>
+              <dd class="mt-1 font-medium text-zinc-900" x-text="ollamaRuntime?.running_count ?? 0"></dd>
+            </div>
+            <div>
+              <dt class="text-zinc-500">Reported VRAM</dt>
+              <dd class="mt-1 font-medium text-zinc-900" x-text="formatBytes(ollamaRuntime?.total_vram_bytes || 0)"></dd>
+            </div>
+          </dl>
+          <p class="mt-4 text-sm text-zinc-700" x-text="ollamaRuntime?.note || 'Checking Ollama runtime.'"></p>
+          <div class="mt-4 space-y-2" x-show="ollamaRuntime?.running_models?.length">
+            <template x-for="item in ollamaRuntime?.running_models || []" :key="item.name">
+              <div class="border border-zinc-200 bg-zinc-50 px-3 py-3 text-sm">
+                <p class="font-medium text-zinc-950" x-text="item.name"></p>
+                <p class="mt-1 text-xs text-zinc-600">
+                  <span x-text="item.details?.family || item.details?.families?.[0] || 'model'"></span>
+                  <span x-text="` - VRAM ${formatBytes(item.size_vram || 0)}`"></span>
+                </p>
+              </div>
+            </template>
+          </div>
+        </section>
+      </div>
+    </div>
+  </section>
+
+  <section class="mt-5" x-show="activeTab === 'inputs'" x-cloak>
+    <div class="grid gap-5 lg:grid-cols-[minmax(0,1fr)_320px]">
+      <div class="space-y-5">
+        <div class="border border-zinc-200 bg-white shadow-sm">
+          <div class="flex items-center justify-between border-b border-zinc-200 px-4 py-3">
+            <h2 class="text-lg font-semibold text-zinc-950">Corpus Files</h2>
+            <span class="text-sm text-zinc-600" x-text="`${corpus.count ?? 0} files`"></span>
+          </div>
+          <div class="overflow-x-auto">
+            <table class="min-w-full divide-y divide-zinc-200 text-sm">
+              <thead class="bg-zinc-50 text-left text-xs font-semibold uppercase text-zinc-600">
+                <tr>
+                  <th class="px-4 py-3">File</th>
+                  <th class="px-4 py-3">Type</th>
+                  <th class="px-4 py-3 text-right">Size</th>
+                </tr>
+              </thead>
+              <tbody class="divide-y divide-zinc-100">
+                <template x-for="file in corpus.files" :key="file.source">
+                  <tr>
+                    <td class="max-w-[460px] truncate px-4 py-3 font-medium text-zinc-950" x-text="file.source"></td>
+                    <td class="px-4 py-3 text-zinc-600" x-text="file.extension"></td>
+                    <td class="px-4 py-3 text-right text-zinc-700" x-text="formatBytes(file.size_bytes)"></td>
+                  </tr>
+                </template>
+                <tr x-show="!corpus.files || corpus.files.length === 0">
+                  <td colspan="3" class="px-4 py-8 text-center text-zinc-500">No supported files found in the docs folder.</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <section class="grid gap-5" :class="showChunkPreview ? 'lg:grid-cols-[minmax(0,1fr)_420px]' : 'lg:grid-cols-1'">
+          <div class="border border-zinc-200 bg-white shadow-sm">
+            <div class="flex items-center justify-between border-b border-zinc-200 px-4 py-3">
+              <h2 class="text-lg font-semibold text-zinc-950">Ingested Documents</h2>
+              <span class="text-sm text-zinc-600" x-text="`${docs.count ?? 0} files`"></span>
+            </div>
+            <div class="overflow-x-auto">
+              <table class="min-w-full divide-y divide-zinc-200 text-sm">
+                <thead class="bg-zinc-50 text-left text-xs font-semibold uppercase text-zinc-600">
+                  <tr>
+                    <th class="px-4 py-3">Source</th>
+                    <th class="px-4 py-3">Type</th>
+                    <th class="px-4 py-3 text-right">Chunks</th>
+                    <th class="px-4 py-3 text-right">Embeddings</th>
+                    <th class="px-4 py-3 text-right">Pages</th>
+                    <th class="px-4 py-3 text-right">Preview</th>
+                    <th class="px-4 py-3 text-right">Remove</th>
+                  </tr>
+                </thead>
+                <tbody class="divide-y divide-zinc-100">
+                  <template x-for="doc in docs.docs" :key="doc.source">
+                    <tr :class="selectedSource === doc.source ? 'bg-emerald-50' : ''">
+                      <td class="max-w-[360px] truncate px-4 py-3 font-medium text-zinc-950" x-text="doc.source"></td>
+                      <td class="px-4 py-3 text-zinc-600" x-text="doc.source_type"></td>
+                      <td class="px-4 py-3 text-right text-zinc-700" x-text="doc.chunks"></td>
+                      <td class="px-4 py-3 text-right text-zinc-700" x-text="doc.embeddings"></td>
+                      <td class="px-4 py-3 text-right text-zinc-700" x-text="doc.page_count"></td>
+                      <td class="px-4 py-3 text-right">
+                        <button
+                          type="button"
+                          class="rounded-md border border-zinc-300 bg-white px-2 py-1 text-xs font-medium text-zinc-800 shadow-sm transition hover:border-emerald-500 hover:text-emerald-800"
+                          @click="loadChunks(doc)"
+                        >
+                          View
+                        </button>
+                      </td>
+                      <td class="px-4 py-3 text-right">
+                        <button
+                          type="button"
+                          class="rounded-md border border-red-300 bg-white px-2 py-1 text-xs font-medium text-red-700 shadow-sm transition hover:bg-red-50"
+                          @click="removeIngestedDoc(doc.source)"
+                        >
+                          Remove
+                        </button>
+                      </td>
+                    </tr>
+                  </template>
+                  <tr x-show="!docs.docs || docs.docs.length === 0">
+                    <td colspan="7" class="px-4 py-8 text-center text-zinc-500">No documents ingested yet.</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <aside class="border border-zinc-200 bg-white shadow-sm" x-show="showChunkPreview" x-cloak>
+            <div class="flex items-start justify-between gap-3 border-b border-zinc-200 px-4 py-3">
+              <div>
+                <h2 class="text-lg font-semibold text-zinc-950">Chunk Preview</h2>
+                <p class="mt-1 truncate text-sm text-zinc-600" x-text="selectedSource || 'Select an ingested document'"></p>
+              </div>
+              <button type="button" class="text-sm font-medium text-zinc-600 hover:text-zinc-950" @click="showChunkPreview = false">
+                Minimise
+              </button>
+            </div>
+            <div class="max-h-[560px] overflow-y-auto p-4">
+              <div class="py-8 text-center text-sm text-zinc-500" x-show="!selectedSource">
+                Select a document to inspect the chunks created by ingestion.
+              </div>
+              <div class="py-8 text-center text-sm text-zinc-500" x-show="selectedSource && chunksLoading">
+                Loading chunks.
+              </div>
+              <div class="py-8 text-center text-sm text-zinc-500" x-show="selectedSource && !chunksLoading && chunks.length === 0">
+                No chunks found for this document.
+              </div>
+              <div class="space-y-3" x-show="chunks.length">
+                <template x-for="chunk in chunks" :key="chunk.id">
+                  <article class="border border-zinc-200 bg-zinc-50 p-3">
+                    <div class="flex items-start justify-between gap-3">
+                      <div>
+                        <p class="text-sm font-semibold text-zinc-950" x-text="`Chunk ${chunk.chunk_index}`"></p>
+                        <p class="mt-1 text-xs text-zinc-500">
+                          <span x-text="`id ${chunk.id}`"></span>
+                          <span x-show="chunk.page" x-text="` - page ${chunk.page}`"></span>
+                          <span x-show="chunk.token_count" x-text="` - ${chunk.token_count} tokens`"></span>
+                          <span x-text="` - ${chunk.embedding_count} embeddings`"></span>
+                        </p>
+                      </div>
+                    </div>
+                    <p class="mt-3 whitespace-pre-wrap text-sm leading-6 text-zinc-800" x-text="chunk.content"></p>
+                  </article>
+                </template>
+              </div>
+            </div>
+          </aside>
+          <button
+            type="button"
+            class="border border-dashed border-zinc-300 bg-white px-4 py-3 text-sm font-medium text-zinc-700 hover:border-emerald-500 hover:text-emerald-800"
+            x-show="!showChunkPreview"
+            x-cloak
+            @click="showChunkPreview = true"
+          >
+            Show chunk preview
+          </button>
+        </section>
+      </div>
+
+      <aside class="border border-zinc-200 bg-white p-4 shadow-sm">
+        <h2 class="text-lg font-semibold text-zinc-950">Input Notes</h2>
+        <dl class="mt-4 space-y-3 text-sm">
+          <div>
+            <dt class="text-zinc-500">Docs path</dt>
+            <dd class="mt-1 break-words font-medium text-zinc-900" x-text="config.docs_path"></dd>
+          </div>
+          <div>
+            <dt class="text-zinc-500">Supported types</dt>
+            <dd class="mt-1 font-medium text-zinc-900">`.txt`, `.md`, `.pdf`</dd>
+          </div>
+          <div>
+            <dt class="text-zinc-500">Current collection</dt>
+            <dd class="mt-1 break-words font-medium text-zinc-900" x-text="config.collection"></dd>
+          </div>
+        </dl>
+        <div class="mt-5 flex flex-wrap gap-2">
+          <button
+            type="button"
+            class="rounded-md border border-emerald-700 bg-emerald-700 px-3 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-emerald-800 disabled:cursor-not-allowed disabled:opacity-60"
+            :disabled="ingestRunning"
+            @click="ingest()"
+          >
+            Run Ingest
+          </button>
+          <button
+            type="button"
+            class="rounded-md border border-red-700 bg-white px-3 py-2 text-sm font-medium text-red-700 shadow-sm transition hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60"
+            :disabled="resetRunning"
+            @click="resetIngestion()"
+          >
+            Reset
+          </button>
+        </div>
+        <div class="mt-5 border border-amber-200 bg-amber-50 px-3 py-3 text-xs text-amber-900">
+          Add or replace files in the docs folder, then run ingest. Removing a file from the folder does not automatically remove its already-ingested vectors unless you reset or remove that source from Query.
+        </div>
+      </aside>
+    </div>
+  </section>
+
+  <section class="mt-5" x-show="activeTab === 'query'" x-cloak>
+    <div class="mb-5 grid gap-4 lg:grid-cols-4">
+      <div class="border border-zinc-200 bg-white p-4 shadow-sm">
+        <p class="text-sm text-zinc-600">Sources</p>
+        <p class="mt-2 text-3xl font-semibold text-zinc-950" x-text="stats.sources ?? '-'"></p>
+      </div>
+      <div class="border border-zinc-200 bg-white p-4 shadow-sm">
+        <p class="text-sm text-zinc-600">Chunks</p>
+        <p class="mt-2 text-3xl font-semibold text-zinc-950" x-text="stats.chunks ?? '-'"></p>
+      </div>
+      <div class="border border-zinc-200 bg-white p-4 shadow-sm">
+        <p class="text-sm text-zinc-600">Embeddings</p>
+        <p class="mt-2 text-3xl font-semibold text-zinc-950" x-text="stats.embeddings ?? '-'"></p>
+      </div>
+      <div class="border border-zinc-200 bg-white p-4 shadow-sm">
+        <p class="text-sm text-zinc-600">Collection</p>
+        <p class="mt-2 truncate text-lg font-semibold text-zinc-950" x-text="config.collection"></p>
+      </div>
+    </div>
+
+  <section class="mt-5 border border-zinc-200 bg-white p-4 shadow-sm">
+    <div class="grid gap-4 lg:grid-cols-[minmax(0,1fr)_260px]">
+      <div>
+        <label for="pipeline-question" class="text-sm font-medium text-zinc-700">Question</label>
+        <textarea
+          id="pipeline-question"
+          class="mt-2 min-h-28 w-full resize-y border border-zinc-300 bg-white p-3 text-sm text-zinc-950 shadow-sm outline-none transition focus:border-emerald-600 focus:ring-2 focus:ring-emerald-100"
+          x-model="question"
+        ></textarea>
+      </div>
+      <div class="grid gap-3">
+        <label class="text-sm font-medium text-zinc-700" for="answer-style">Answer style</label>
+        <select id="answer-style" class="border border-zinc-300 bg-white px-3 py-2 text-sm" x-model="answerStyle">
+          <option value="auto">Auto</option>
+          <option value="concise">Concise</option>
+          <option value="detailed">Detailed</option>
+          <option value="steps">Steps</option>
+          <option value="parameters">Parameters</option>
+        </select>
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="text-xs font-medium text-zinc-600" for="top-k">Top K</label>
+            <input id="top-k" type="number" min="1" max="20" class="mt-1 w-full border border-zinc-300 px-2 py-2 text-sm" x-model.number="topK">
+          </div>
+          <div>
+            <label class="text-xs font-medium text-zinc-600" for="max-sources">Sources</label>
+            <input id="max-sources" type="number" min="1" max="12" class="mt-1 w-full border border-zinc-300 px-2 py-2 text-sm" x-model.number="maxSources">
+          </div>
+        </div>
+        <div>
+          <label class="text-xs font-medium text-zinc-600" for="strictness">Strictness</label>
+          <select id="strictness" class="mt-1 w-full border border-zinc-300 bg-white px-2 py-2 text-sm" x-model="strictness">
+            <option value="balanced">Balanced</option>
+            <option value="strict">Strict</option>
+          </select>
+        </div>
+        <div>
+          <label class="text-xs font-medium text-zinc-600" for="min-score">Minimum score</label>
+          <input id="min-score" type="number" min="0" max="1" step="0.05" class="mt-1 w-full border border-zinc-300 px-2 py-2 text-sm" x-model.number="minSemanticScore">
+        </div>
+        <div>
+          <label class="text-xs font-medium text-zinc-600" for="reasoning-mode">Reasoning</label>
+          <select id="reasoning-mode" class="mt-1 w-full border border-zinc-300 bg-white px-2 py-2 text-sm" x-model="reasoningMode">
+            <option value="grounded">Grounded</option>
+            <option value="reasoned">Reasoned</option>
+          </select>
+        </div>
+        <button
+          type="button"
+          class="rounded-md border border-zinc-900 bg-zinc-900 px-3 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-60"
+          :disabled="askRunning || !question.trim()"
+          @click="ask()"
+        >
+          <span x-show="!askRunning">Ask</span>
+          <span x-show="askRunning">Asking model...</span>
+        </button>
+      </div>
+    </div>
+
+    <div class="mt-5 border-t border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-900" x-show="askRunning" x-cloak>
+      Asking model. Retrieval and generation may take a little while.
+    </div>
+
+    <div class="mt-5 border-t border-zinc-200 pt-4" x-show="answer || sources.length" x-cloak>
+      <div class="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <h2 class="text-lg font-semibold text-zinc-950">Answer</h2>
+          <p class="mt-1 text-xs text-emerald-700" x-show="currentRun" x-text="`Captured run ${currentRun?.id}`"></p>
+        </div>
+        <p class="text-xs text-zinc-500" x-show="answerMeta.top_semantic_score !== undefined">
+          <span x-text="`top score ${answerMeta.top_semantic_score}`"></span>
+          <span x-text="` - threshold ${answerMeta.threshold}`"></span>
+          <span x-text="` - ${answerMeta.strictness}`"></span>
+        </p>
+      </div>
+      <p class="mt-3 whitespace-pre-wrap text-sm leading-6 text-zinc-800" x-text="answer"></p>
+      <div class="mt-5" x-show="sources.length">
+        <h3 class="text-sm font-semibold uppercase text-zinc-600">Retrieved Sources</h3>
+      </div>
+      <div class="mt-3 grid gap-3 md:grid-cols-2" x-show="sources.length">
+        <template x-for="source in sources" :key="source.citation">
+          <article class="border border-zinc-200 bg-zinc-50 p-3 text-left">
+            <p class="text-sm font-semibold text-zinc-950" x-text="source.citation"></p>
+            <p class="mt-1 text-xs text-zinc-600">
+              <span x-text="`score ${source.semantic_score ?? '-'}`"></span>
+              <span x-show="source.document_chunk_id" x-text="` - chunk id ${source.document_chunk_id}`"></span>
+            </p>
+            <p class="mt-2 max-h-24 overflow-hidden text-sm leading-6 text-zinc-700" x-text="source.preview"></p>
+            <div class="mt-3">
+              <button
+                type="button"
+                class="rounded-md border border-zinc-300 bg-white px-2 py-1 text-xs font-medium text-zinc-800 shadow-sm transition hover:border-emerald-500 hover:text-emerald-800"
+                @click="openRetrievedChunk(source)"
+              >
+                Inspect chunk
+              </button>
+            </div>
+          </article>
+        </template>
+      </div>
+    </div>
+  </section>
+
+  <section class="mt-5 border border-zinc-200 bg-white shadow-sm">
+    <div class="flex items-center justify-between border-b border-zinc-200 px-4 py-3">
+      <h2 class="text-lg font-semibold text-zinc-950">Captured Answers</h2>
+      <span class="text-sm text-zinc-600" x-text="`${askRuns.length} recent`"></span>
+    </div>
+    <div class="overflow-x-auto">
+      <table class="min-w-full divide-y divide-zinc-200 text-sm">
+        <thead class="bg-zinc-50 text-left text-xs font-semibold uppercase text-zinc-600">
+          <tr>
+            <th class="px-4 py-3">Question</th>
+            <th class="px-4 py-3">Style</th>
+            <th class="px-4 py-3 text-right">Top Score</th>
+            <th class="px-4 py-3 text-right">Latency</th>
+            <th class="px-4 py-3 text-right">Open</th>
+            <th class="px-4 py-3 text-right">Remove</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-zinc-100">
+          <template x-for="run in askRuns" :key="run.id">
+            <tr :class="currentRun?.id === run.id ? 'bg-emerald-50' : ''">
+              <td class="max-w-[520px] truncate px-4 py-3 font-medium text-zinc-950" x-text="run.input?.question || run.name"></td>
+              <td class="px-4 py-3 text-zinc-600" x-text="run.input?.answer_style || '-'"></td>
+              <td class="px-4 py-3 text-right text-zinc-700" x-text="run.meta?.top_semantic_score ?? '-'"></td>
+              <td class="px-4 py-3 text-right text-zinc-700" x-text="run.latency_ms ? `${(run.latency_ms / 1000).toFixed(1)}s` : '-'"></td>
+              <td class="px-4 py-3 text-right">
+                <button
+                  type="button"
+                  class="rounded-md border border-zinc-300 bg-white px-2 py-1 text-xs font-medium text-zinc-800 shadow-sm transition hover:border-emerald-500 hover:text-emerald-800"
+                  @click="loadCapturedRun(run.id)"
+                  >
+                  Open
+                </button>
+              </td>
+              <td class="px-4 py-3 text-right">
+                <button
+                  type="button"
+                  class="rounded-md border border-red-300 bg-white px-2 py-1 text-xs font-medium text-red-700 shadow-sm transition hover:bg-red-50"
+                  @click="removeCapturedRun(run)"
+                >
+                  Remove
+                </button>
+              </td>
+            </tr>
+          </template>
+          <tr x-show="askRuns.length === 0">
+            <td colspan="6" class="px-4 py-8 text-center text-zinc-500">No captured answers yet.</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+  </section>
+</section>
+{% endblock %}
