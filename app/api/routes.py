@@ -1,6 +1,7 @@
 import json
 import time
 import uuid
+from datetime import datetime
 
 from flask import Blueprint, Response, current_app, jsonify, request, stream_with_context
 
@@ -116,10 +117,21 @@ def _capture_ask_run(question, opts, result, latency_ms, cfg):
         name=question[:160],
         provider="ollama",
         model=cfg["MODEL_NAME"],
-        input_json={"question": question, **opts},
+        input_json={
+            "question": question,
+            **opts,
+            "embed_model": cfg["EMBED_MODEL"],
+            "collection": cfg["COLLECTION_NAME"],
+        },
         response_text=result.get("answer"),
         response_json={
-            "meta": result.get("meta", {}),
+            "meta": {
+                **(result.get("meta", {}) or {}),
+                "provider": "ollama",
+                "model": cfg["MODEL_NAME"],
+                "embed_model": cfg["EMBED_MODEL"],
+                "collection": cfg["COLLECTION_NAME"],
+            },
             "citations": result.get("citations", []),
             "sources": result.get("sources", []),
         },
@@ -385,6 +397,56 @@ def ask_run_detail(run_id):
     return jsonify(_run_payload(run, include_artifacts=True))
 
 
+@api_bp.get("/ask-runs/<int:run_id>/download")
+def ask_run_download(run_id):
+    run = PromptRun.query.get_or_404(run_id)
+    payload = _run_payload(run, include_artifacts=True)
+    timestamp = run.created_at.strftime("%Y%m%d-%H%M%S") if run.created_at else datetime.utcnow().strftime("%Y%m%d-%H%M%S")
+    filename = f"ragdoc-ask-run-{run_id}-{timestamp}.json"
+    return Response(
+        json.dumps(payload, indent=2),
+        mimetype="application/json",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@api_bp.get("/ask-runs/<int:run_id>/answer.txt")
+def ask_run_answer_text(run_id):
+    run = PromptRun.query.get_or_404(run_id)
+    timestamp = run.created_at.strftime("%Y%m%d-%H%M%S") if run.created_at else datetime.utcnow().strftime("%Y%m%d-%H%M%S")
+    filename = f"ragdoc-answer-{run_id}-{timestamp}.txt"
+    answer = run.response_text or ""
+    input_json = run.input_json or {}
+    response_json = run.response_json or {}
+    meta = response_json.get("meta", {}) or {}
+    header_lines = [
+        f"Run ID: {run.id}",
+        f"Created: {run.created_at.isoformat() if run.created_at else '-'}",
+        f"Provider: {run.provider or meta.get('provider') or '-'}",
+        f"Generation model: {run.model or meta.get('model') or '-'}",
+        f"Embedding model: {input_json.get('embed_model') or meta.get('embed_model') or '-'}",
+        f"Collection: {input_json.get('collection') or meta.get('collection') or '-'}",
+        f"Answer style: {input_json.get('answer_style') or '-'}",
+        f"Reasoning mode: {input_json.get('reasoning_mode') or '-'}",
+        f"Strictness: {input_json.get('strictness') or meta.get('strictness') or '-'}",
+        f"Top K: {input_json.get('top_k') if input_json.get('top_k') is not None else '-'}",
+        f"Max sources: {input_json.get('max_sources') if input_json.get('max_sources') is not None else '-'}",
+        f"Minimum score: {input_json.get('min_semantic_score') if input_json.get('min_semantic_score') is not None else '-'}",
+        f"Latency: {f'{run.latency_ms / 1000:.1f}s' if run.latency_ms is not None else '-'}",
+        "",
+        "Question:",
+        input_json.get("question") or run.name or "-",
+        "",
+        "Answer:",
+    ]
+    payload = "\n".join(header_lines) + "\n" + answer
+    return Response(
+        payload,
+        mimetype="text/plain; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
 @api_bp.delete("/ask-runs/<int:run_id>")
 def ask_run_delete(run_id):
     run = PromptRun.query.get_or_404(run_id)
@@ -397,6 +459,36 @@ def ask_run_delete(run_id):
         raise
 
     return jsonify({"ok": True, "run_id": run_id, "name": run_name})
+
+
+@api_bp.get("/ask-runs/export")
+def ask_runs_export():
+    try:
+        limit = int(request.args.get("limit", 50))
+    except ValueError as exc:
+        raise AppError("limit must be an integer.", 400) from exc
+
+    if limit < 1 or limit > 500:
+        raise AppError("limit must be between 1 and 500.", 400)
+
+    runs = (
+        PromptRun.query.join(Prompt)
+        .filter(Prompt.name == "Pipeline Ask")
+        .order_by(PromptRun.created_at.desc())
+        .limit(limit)
+        .all()
+    )
+    payload = {
+        "exported_at": datetime.utcnow().isoformat() + "Z",
+        "count": len(runs),
+        "runs": [_run_payload(run, include_artifacts=True) for run in runs],
+    }
+    filename = f"ragdoc-ask-runs-{datetime.utcnow().strftime('%Y%m%d-%H%M%S')}.json"
+    return Response(
+        json.dumps(payload, indent=2),
+        mimetype="application/json",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 @api_bp.post("/chat")

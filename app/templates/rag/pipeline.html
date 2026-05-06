@@ -560,23 +560,73 @@
   </section>
 
   <section class="mt-5" x-show="activeTab === 'query'" x-cloak>
-    <div class="mb-5 grid gap-4 lg:grid-cols-4">
-      <div class="border border-zinc-200 bg-white p-4 shadow-sm">
-        <p class="text-sm text-zinc-600">Sources</p>
-        <p class="mt-2 text-3xl font-semibold text-zinc-950" x-text="stats.sources ?? '-'"></p>
-      </div>
-      <div class="border border-zinc-200 bg-white p-4 shadow-sm">
-        <p class="text-sm text-zinc-600">Chunks</p>
-        <p class="mt-2 text-3xl font-semibold text-zinc-950" x-text="stats.chunks ?? '-'"></p>
-      </div>
-      <div class="border border-zinc-200 bg-white p-4 shadow-sm">
-        <p class="text-sm text-zinc-600">Embeddings</p>
-        <p class="mt-2 text-3xl font-semibold text-zinc-950" x-text="stats.embeddings ?? '-'"></p>
-      </div>
-      <div class="border border-zinc-200 bg-white p-4 shadow-sm">
-        <p class="text-sm text-zinc-600">Collection</p>
-        <p class="mt-2 truncate text-lg font-semibold text-zinc-950" x-text="config.collection"></p>
-      </div>
+    <div class="mb-5 grid gap-5 lg:grid-cols-[minmax(0,1fr)_320px]">
+      <section class="border border-zinc-200 bg-white p-4 shadow-sm">
+        <div class="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+          <div>
+            <h2 class="text-lg font-semibold text-zinc-950">Query Context</h2>
+            <p class="mt-1 text-sm text-zinc-600">Current pipeline settings and index state for this question run.</p>
+          </div>
+          <div class="grid grid-cols-2 gap-2 text-xs sm:grid-cols-4">
+            <div class="border border-zinc-200 bg-zinc-50 px-3 py-2">
+              <p class="uppercase text-zinc-500">Docs</p>
+              <p class="mt-1 font-semibold text-zinc-950" x-text="stats.sources ?? 0"></p>
+            </div>
+            <div class="border border-zinc-200 bg-zinc-50 px-3 py-2">
+              <p class="uppercase text-zinc-500">Chunks</p>
+              <p class="mt-1 font-semibold text-zinc-950" x-text="stats.chunks ?? 0"></p>
+            </div>
+            <div class="border border-zinc-200 bg-zinc-50 px-3 py-2">
+              <p class="uppercase text-zinc-500">Vectors</p>
+              <p class="mt-1 font-semibold text-zinc-950" x-text="stats.embeddings ?? 0"></p>
+            </div>
+            <div class="border border-zinc-200 bg-zinc-50 px-3 py-2">
+              <p class="uppercase text-zinc-500">Runs</p>
+              <p class="mt-1 font-semibold text-zinc-950" x-text="askRuns.length"></p>
+            </div>
+          </div>
+        </div>
+        <dl class="mt-4 grid gap-3 text-sm sm:grid-cols-2 xl:grid-cols-4">
+          <div>
+            <dt class="text-zinc-500">Generation model</dt>
+            <dd class="mt-1 font-medium text-zinc-900" x-text="config.model"></dd>
+          </div>
+          <div>
+            <dt class="text-zinc-500">Embedding model</dt>
+            <dd class="mt-1 font-medium text-zinc-900" x-text="config.embed_model"></dd>
+          </div>
+          <div>
+            <dt class="text-zinc-500">Collection</dt>
+            <dd class="mt-1 truncate font-medium text-zinc-900" x-text="config.collection"></dd>
+          </div>
+          <div>
+            <dt class="text-zinc-500">Reasoning mode</dt>
+            <dd class="mt-1 font-medium capitalize text-zinc-900" x-text="reasoningMode"></dd>
+          </div>
+        </dl>
+      </section>
+
+      <aside class="border border-zinc-200 bg-white p-4 shadow-sm">
+        <h2 class="text-lg font-semibold text-zinc-950">Current Ask</h2>
+        <dl class="mt-4 space-y-3 text-sm">
+          <div>
+            <dt class="text-zinc-500">Answer style</dt>
+            <dd class="mt-1 font-medium capitalize text-zinc-900" x-text="answerStyle"></dd>
+          </div>
+          <div>
+            <dt class="text-zinc-500">Strictness</dt>
+            <dd class="mt-1 font-medium capitalize text-zinc-900" x-text="strictness"></dd>
+          </div>
+          <div>
+            <dt class="text-zinc-500">Top K / Sources</dt>
+            <dd class="mt-1 font-medium text-zinc-900"><span x-text="topK"></span><span> / </span><span x-text="maxSources"></span></dd>
+          </div>
+          <div>
+            <dt class="text-zinc-500">Minimum score</dt>
+            <dd class="mt-1 font-medium text-zinc-900" x-text="minSemanticScore"></dd>
+          </div>
+        </dl>
+      </aside>
     </div>
 
   <section class="mt-5 border border-zinc-200 bg-white p-4 shadow-sm">
@@ -648,11 +698,32 @@
           <h2 class="text-lg font-semibold text-zinc-950">Answer</h2>
           <p class="mt-1 text-xs text-emerald-700" x-show="currentRun" x-text="`Captured run ${currentRun?.id}`"></p>
         </div>
-        <p class="text-xs text-zinc-500" x-show="answerMeta.top_semantic_score !== undefined">
-          <span x-text="`top score ${answerMeta.top_semantic_score}`"></span>
-          <span x-text="` - threshold ${answerMeta.threshold}`"></span>
-          <span x-text="` - ${answerMeta.strictness}`"></span>
-        </p>
+      </div>
+      <div class="mt-3 grid gap-2 text-xs sm:grid-cols-2 xl:grid-cols-6">
+        <div class="border border-zinc-200 bg-zinc-50 px-3 py-2">
+          <p class="uppercase text-zinc-500">Model</p>
+          <p class="mt-1 font-semibold text-zinc-950" x-text="currentRun?.model || config.model"></p>
+        </div>
+        <div class="border border-zinc-200 bg-zinc-50 px-3 py-2">
+          <p class="uppercase text-zinc-500">Embedding</p>
+          <p class="mt-1 font-semibold text-zinc-950" x-text="config.embed_model"></p>
+        </div>
+        <div class="border border-zinc-200 bg-zinc-50 px-3 py-2" x-show="answerMeta.top_semantic_score !== undefined">
+          <p class="uppercase text-zinc-500">Top score</p>
+          <p class="mt-1 font-semibold text-zinc-950" x-text="answerMeta.top_semantic_score"></p>
+        </div>
+        <div class="border border-zinc-200 bg-zinc-50 px-3 py-2" x-show="answerMeta.threshold !== undefined">
+          <p class="uppercase text-zinc-500">Threshold</p>
+          <p class="mt-1 font-semibold text-zinc-950" x-text="answerMeta.threshold"></p>
+        </div>
+        <div class="border border-zinc-200 bg-zinc-50 px-3 py-2">
+          <p class="uppercase text-zinc-500">Strictness</p>
+          <p class="mt-1 font-semibold capitalize text-zinc-950" x-text="answerMeta.strictness || strictness"></p>
+        </div>
+        <div class="border border-zinc-200 bg-zinc-50 px-3 py-2">
+          <p class="uppercase text-zinc-500">Latency</p>
+          <p class="mt-1 font-semibold text-zinc-950" x-text="currentRun?.latency_ms ? `${(currentRun.latency_ms / 1000).toFixed(1)}s` : '-'"></p>
+        </div>
       </div>
       <p class="mt-3 whitespace-pre-wrap text-sm leading-6 text-zinc-800" x-text="answer"></p>
       <div class="mt-5" x-show="sources.length">
@@ -685,7 +756,15 @@
   <section class="mt-5 border border-zinc-200 bg-white shadow-sm">
     <div class="flex items-center justify-between border-b border-zinc-200 px-4 py-3">
       <h2 class="text-lg font-semibold text-zinc-950">Captured Answers</h2>
-      <span class="text-sm text-zinc-600" x-text="`${askRuns.length} recent`"></span>
+      <div class="flex items-center gap-3">
+        <a
+          href="/api/ask-runs/export?limit=50"
+          class="rounded-md border border-zinc-300 bg-white px-2 py-1 text-xs font-medium text-zinc-800 shadow-sm transition hover:border-emerald-500 hover:text-emerald-800"
+        >
+          Download Recent
+        </a>
+        <span class="text-sm text-zinc-600" x-text="`${askRuns.length} recent`"></span>
+      </div>
     </div>
     <div class="overflow-x-auto">
       <table class="min-w-full divide-y divide-zinc-200 text-sm">
@@ -696,6 +775,8 @@
             <th class="px-4 py-3 text-right">Top Score</th>
             <th class="px-4 py-3 text-right">Latency</th>
             <th class="px-4 py-3 text-right">Open</th>
+            <th class="px-4 py-3 text-right">TXT</th>
+            <th class="px-4 py-3 text-right">Download</th>
             <th class="px-4 py-3 text-right">Remove</th>
           </tr>
         </thead>
@@ -716,6 +797,22 @@
                 </button>
               </td>
               <td class="px-4 py-3 text-right">
+                <a
+                  class="rounded-md border border-zinc-300 bg-white px-2 py-1 text-xs font-medium text-zinc-800 shadow-sm transition hover:border-emerald-500 hover:text-emerald-800"
+                  :href="`/api/ask-runs/${run.id}/answer.txt`"
+                >
+                  TXT
+                </a>
+              </td>
+              <td class="px-4 py-3 text-right">
+                <a
+                  class="rounded-md border border-zinc-300 bg-white px-2 py-1 text-xs font-medium text-zinc-800 shadow-sm transition hover:border-emerald-500 hover:text-emerald-800"
+                  :href="`/api/ask-runs/${run.id}/download`"
+                >
+                  Download
+                </a>
+              </td>
+              <td class="px-4 py-3 text-right">
                 <button
                   type="button"
                   class="rounded-md border border-red-300 bg-white px-2 py-1 text-xs font-medium text-red-700 shadow-sm transition hover:bg-red-50"
@@ -727,7 +824,7 @@
             </tr>
           </template>
           <tr x-show="askRuns.length === 0">
-            <td colspan="6" class="px-4 py-8 text-center text-zinc-500">No captured answers yet.</td>
+            <td colspan="8" class="px-4 py-8 text-center text-zinc-500">No captured answers yet.</td>
           </tr>
         </tbody>
       </table>
