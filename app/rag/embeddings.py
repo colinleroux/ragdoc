@@ -104,20 +104,28 @@ def ollama_embed(text: str, cfg: Dict[str, Any]) -> List[float]:
 
 
 def ollama_generate(prompt: str, cfg: Dict[str, Any]) -> str:
+    return ollama_generate_with_model(prompt, cfg["MODEL_NAME"], cfg)
+
+
+def ollama_generate_with_model(prompt: str, model_name: str, cfg: Dict[str, Any]) -> str:
+    model_name = (model_name or "").strip()
+    if not model_name:
+        raise AppError("Model name is required for generation.", 400)
+
     response = _http_request(
         "POST",
         f"{cfg['OLLAMA_BASE_URL']}/api/generate",
         timeout=300,
-        json_body={"model": cfg["MODEL_NAME"], "prompt": prompt, "stream": False},
+        json_body={"model": model_name, "prompt": prompt, "stream": False},
     )
     if response.status_code != 200:
-        if _is_model_not_found_error(response.text, cfg["MODEL_NAME"]):
-            ollama_pull_model(cfg["MODEL_NAME"], cfg)
+        if _is_model_not_found_error(response.text, model_name):
+            ollama_pull_model(model_name, cfg)
             response = _http_request(
                 "POST",
                 f"{cfg['OLLAMA_BASE_URL']}/api/generate",
                 timeout=300,
-                json_body={"model": cfg["MODEL_NAME"], "prompt": prompt, "stream": False},
+                json_body={"model": model_name, "prompt": prompt, "stream": False},
             )
         if response.status_code != 200:
             raise AppError(f"Ollama generate failed: {response.text}", 500)
@@ -125,10 +133,16 @@ def ollama_generate(prompt: str, cfg: Dict[str, Any]) -> str:
 
 
 def ensure_required_models(cfg: Dict[str, Any]) -> Dict[str, Any]:
-    return {
+    results: Dict[str, Any] = {
         "embedding": ollama_pull_model(cfg["EMBED_MODEL"], cfg),
         "generation": ollama_pull_model(cfg["MODEL_NAME"], cfg),
     }
+    if not cfg.get("JUDGE_ENABLED", True):
+        return results
+    judge_model = (cfg.get("JUDGE_MODEL") or "").strip()
+    if judge_model and judge_model not in {cfg["MODEL_NAME"], cfg["EMBED_MODEL"]}:
+        results["judge"] = ollama_pull_model(judge_model, cfg)
+    return results
 
 
 def iter_model_pull_progress(model_name: str, cfg: Dict[str, Any]) -> Iterator[Dict[str, Any]]:
@@ -173,6 +187,9 @@ def iter_model_pull_progress(model_name: str, cfg: Dict[str, Any]) -> Iterator[D
 
 def iter_required_models_progress(cfg: Dict[str, Any]) -> Iterator[Dict[str, Any]]:
     models = [("embedding", cfg["EMBED_MODEL"]), ("generation", cfg["MODEL_NAME"])]
+    judge_model = (cfg.get("JUDGE_MODEL") or "").strip()
+    if cfg.get("JUDGE_ENABLED", True) and judge_model and judge_model not in {cfg["MODEL_NAME"], cfg["EMBED_MODEL"]}:
+        models.append(("judge", judge_model))
     total_models = len(models)
 
     for index, (kind, model_name) in enumerate(models):

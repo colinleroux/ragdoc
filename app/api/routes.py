@@ -6,6 +6,14 @@ from datetime import datetime
 from flask import Blueprint, Response, current_app, jsonify, request, stream_with_context
 
 from ..extensions import db
+from ..ingestion_presets import (
+    get_active_ingestion_preset,
+    ingestion_preset_payload,
+    ingestion_run_payload,
+    latest_ingestion_run,
+    list_active_presets,
+    set_active_ingestion_preset,
+)
 from ..errors import AppError
 from ..models import DataSource, DocumentChunk, EmbeddingRecord, Prompt, PromptRun, RunArtifact, RunEvaluation
 from ..prompts.presets import prompt_query_defaults
@@ -28,6 +36,7 @@ from ..rag.service import (
     resolve_pipeline_config,
     reset_ingestion,
     save_pipeline_settings,
+    evaluate_run_with_judge,
 )
 
 api_bp = Blueprint("api", __name__, url_prefix="/api")
@@ -92,6 +101,7 @@ def _resolve_prompt_for_run(prompt_id):
 
 def _run_payload(run, include_artifacts=False):
     evaluation = _run_evaluation_payload(run)
+    judge = _judge_payload(run)
     payload = {
         "id": run.id,
         "name": run.name,
@@ -106,6 +116,7 @@ def _run_payload(run, include_artifacts=False):
         "latency_ms": run.latency_ms,
         "created_at": run.created_at.isoformat() if run.created_at else None,
         "evaluation": evaluation,
+        "judge": judge,
     }
     if include_artifacts:
         payload["artifacts"] = [
@@ -136,6 +147,36 @@ def _run_evaluation_payload(run):
     }
 
 
+def _judge_payload(run):
+    judge_eval = (
+        RunEvaluation.query.filter_by(prompt_run_id=run.id, metric="rag_answer_eval")
+        .order_by(RunEvaluation.updated_at.desc())
+        .first()
+    )
+    if judge_eval is None:
+        return {
+            "label": None,
+            "acceptable": None,
+            "score_total": None,
+            "evaluator": None,
+            "rubric": None,
+            "updated_at": None,
+        }
+
+    rubric = judge_eval.rubric_json or {}
+    return {
+        "label": rubric.get("label"),
+        "acceptable": rubric.get("acceptable"),
+        "score_total": rubric.get("score_total"),
+        "retrieval_sufficient": rubric.get("retrieval_sufficient"),
+        "main_failure_mode": rubric.get("main_failure_mode"),
+        "explanation": rubric.get("explanation"),
+        "evaluator": judge_eval.evaluator,
+        "rubric": rubric,
+        "updated_at": judge_eval.updated_at.isoformat() if judge_eval.updated_at else None,
+    }
+
+
 def _prompt_payload(prompt):
     return {
         "id": prompt.id,
@@ -152,6 +193,8 @@ def _prompt_payload(prompt):
 
 def _capture_ask_run(question, opts, result, latency_ms, cfg, prompt_id=None):
     prompt = _resolve_prompt_for_run(prompt_id)
+    latest_run = latest_ingestion_run(cfg["COLLECTION_NAME"])
+    latest_run_payload = ingestion_run_payload(latest_run)
     chunk_ids = [
         source.get("document_chunk_id")
         for source in result.get("sources", [])
@@ -173,7 +216,13 @@ def _capture_ask_run(question, opts, result, latency_ms, cfg, prompt_id=None):
             **opts,
             "prompt_id": prompt.id,
             "prompt_name": prompt.name,
+            "ingestion_preset_id": latest_run_payload["preset_id"] if latest_run_payload else None,
+            "ingestion_preset_name": latest_run_payload["preset_name"] if latest_run_payload else None,
+            "ingestion_run_id": latest_run_payload["id"] if latest_run_payload else None,
             "embed_model": cfg["EMBED_MODEL"],
+            "judge_enabled": cfg["JUDGE_ENABLED"],
+            "judge_provider": cfg["JUDGE_PROVIDER"],
+            "judge_model": cfg["JUDGE_MODEL"],
             "collection": cfg["COLLECTION_NAME"],
         },
         response_text=result.get("answer"),
@@ -184,7 +233,13 @@ def _capture_ask_run(question, opts, result, latency_ms, cfg, prompt_id=None):
                 "model": cfg["MODEL_NAME"],
                 "prompt_id": prompt.id,
                 "prompt_name": prompt.name,
+                "ingestion_preset_id": latest_run_payload["preset_id"] if latest_run_payload else None,
+                "ingestion_preset_name": latest_run_payload["preset_name"] if latest_run_payload else None,
+                "ingestion_run_id": latest_run_payload["id"] if latest_run_payload else None,
                 "embed_model": cfg["EMBED_MODEL"],
+                "judge_enabled": cfg["JUDGE_ENABLED"],
+                "judge_provider": cfg["JUDGE_PROVIDER"],
+                "judge_model": cfg["JUDGE_MODEL"],
                 "collection": cfg["COLLECTION_NAME"],
             },
             "citations": result.get("citations", []),
@@ -219,12 +274,15 @@ def _capture_ask_run(question, opts, result, latency_ms, cfg, prompt_id=None):
 @api_bp.route("/health")
 def health():
     cfg = resolve_pipeline_config(current_app.config)
+    latest_run = latest_ingestion_run(cfg["COLLECTION_NAME"])
     return jsonify(
         {
             "status": "ok",
             "model": cfg["MODEL_NAME"],
             "embed_model": cfg["EMBED_MODEL"],
+            "judge_enabled": cfg["JUDGE_ENABLED"],
             "collection": cfg["COLLECTION_NAME"],
+            "ingestion_preset": ingestion_run_payload(latest_run),
             "framework": "flask",
         }
     )
@@ -232,6 +290,7 @@ def health():
 
 @api_bp.route("/stats")
 def stats():
+    latest_run = latest_ingestion_run()
     return jsonify(
         {
             "sources": DataSource.query.count(),
@@ -239,6 +298,7 @@ def stats():
             "embeddings": EmbeddingRecord.query.count(),
             "prompts": Prompt.query.count(),
             "runs": PromptRun.query.count(),
+            "latest_ingestion_run": ingestion_run_payload(latest_run),
         }
     )
 
@@ -253,6 +313,32 @@ def prompts():
     return jsonify({"prompts": [_prompt_payload(prompt) for prompt in rows], "count": len(rows)})
 
 
+@api_bp.get("/ingestion-presets")
+def ingestion_presets():
+    active_preset = get_active_ingestion_preset()
+    presets = [ingestion_preset_payload(preset) for preset in list_active_presets()]
+    latest_run = latest_ingestion_run()
+    return jsonify(
+        {
+            "presets": presets,
+            "count": len(presets),
+            "active_preset_id": active_preset.id,
+            "active_preset": ingestion_preset_payload(active_preset),
+            "latest_run": ingestion_run_payload(latest_run),
+        }
+    )
+
+
+@api_bp.put("/ingestion-presets/active")
+def ingestion_presets_set_active():
+    body = request.get_json(silent=True) or {}
+    preset_id = body.get("preset_id")
+    if preset_id in (None, ""):
+        raise AppError("preset_id is required.", 400)
+    preset = set_active_ingestion_preset(int(preset_id))
+    return jsonify({"ok": True, "active_preset": ingestion_preset_payload(preset)})
+
+
 @api_bp.post("/setup-models")
 def setup_models():
     cfg = resolve_pipeline_config(current_app.config)
@@ -262,6 +348,9 @@ def setup_models():
             "ok": True,
             "embed_model": cfg["EMBED_MODEL"],
             "model_name": cfg["MODEL_NAME"],
+            "judge_enabled": cfg["JUDGE_ENABLED"],
+            "judge_provider": cfg["JUDGE_PROVIDER"],
+            "judge_model": cfg["JUDGE_MODEL"],
             "pulled": result,
         }
     )
@@ -281,6 +370,9 @@ def setup_models_stream():
                 "ok": True,
                 "embed_model": cfg["EMBED_MODEL"],
                 "model_name": cfg["MODEL_NAME"],
+                "judge_enabled": cfg["JUDGE_ENABLED"],
+                "judge_provider": cfg["JUDGE_PROVIDER"],
+                "judge_model": cfg["JUDGE_MODEL"],
             }
             yield f"event: done\ndata: {json.dumps(done_payload)}\n\n"
         except AppError as exc:
@@ -493,6 +585,13 @@ def ask_run_evaluation_update(run_id):
     return jsonify(_run_payload(run))
 
 
+@api_bp.post("/ask-runs/<int:run_id>/judge")
+def ask_run_judge(run_id):
+    run = PromptRun.query.get_or_404(run_id)
+    result = evaluate_run_with_judge(run, resolve_pipeline_config(current_app.config))
+    return jsonify({"ok": True, "run": _run_payload(run), "judge": result})
+
+
 @api_bp.get("/ask-runs/<int:run_id>/download")
 def ask_run_download(run_id):
     run = PromptRun.query.get_or_404(run_id)
@@ -515,13 +614,18 @@ def ask_run_answer_text(run_id):
     input_json = run.input_json or {}
     response_json = run.response_json or {}
     meta = response_json.get("meta", {}) or {}
+    judge = _judge_payload(run)
     header_lines = [
         f"Run ID: {run.id}",
         f"Created: {run.created_at.isoformat() if run.created_at else '-'}",
         f"Provider: {run.provider or meta.get('provider') or '-'}",
         f"Generation model: {run.model or meta.get('model') or '-'}",
         f"Embedding model: {input_json.get('embed_model') or meta.get('embed_model') or '-'}",
+        f"Judge enabled: {'Yes' if (input_json.get('judge_enabled') if input_json.get('judge_enabled') is not None else meta.get('judge_enabled')) else 'No'}",
+        f"Judge provider: {input_json.get('judge_provider') or meta.get('judge_provider') or '-'}",
+        f"Judge model: {input_json.get('judge_model') or meta.get('judge_model') or '-'}",
         f"Collection: {input_json.get('collection') or meta.get('collection') or '-'}",
+        f"Ingestion preset: {input_json.get('ingestion_preset_name') or meta.get('ingestion_preset_name') or '-'}",
         f"Answer style: {input_json.get('answer_style') or '-'}",
         f"Reasoning mode: {input_json.get('reasoning_mode') or '-'}",
         f"Strictness: {input_json.get('strictness') or meta.get('strictness') or '-'}",
@@ -529,6 +633,7 @@ def ask_run_answer_text(run_id):
         f"Max sources: {input_json.get('max_sources') if input_json.get('max_sources') is not None else '-'}",
         f"Minimum score: {input_json.get('min_semantic_score') if input_json.get('min_semantic_score') is not None else '-'}",
         f"Latency: {f'{run.latency_ms / 1000:.1f}s' if run.latency_ms is not None else '-'}",
+        f"Judge label: {judge.get('label') or '-'}",
         "",
         "Question:",
         input_json.get("question") or run.name or "-",

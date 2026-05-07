@@ -16,11 +16,13 @@ def create_app(config_class=Config):
 
     from .main.routes import main_bp
     from .api.routes import api_bp
+    from .ingestion.routes import ingestion_bp
     from .prompts.routes import prompts_bp
     from .rag.routes import rag_bp
 
     app.register_blueprint(main_bp)
     app.register_blueprint(api_bp)
+    app.register_blueprint(ingestion_bp)
     app.register_blueprint(rag_bp)
     app.register_blueprint(prompts_bp)
 

@@ -1,25 +1,106 @@
 import hashlib
+import re
 from typing import List
 
 
-def chunk_text(text: str, chunk_chars: int = 1200, overlap: int = 200) -> List[str]:
+def chunk_text(
+    text: str,
+    chunk_chars: int = 1200,
+    overlap: int = 200,
+    split_strategy: str = "fixed",
+    min_chunk_chars: int = 200,
+) -> List[str]:
     text = text.replace("\r\n", "\n").strip()
     if not text:
         return []
 
+    if split_strategy == "paragraph":
+        return _chunk_paragraphs(text, chunk_chars, overlap, min_chunk_chars)
+    if split_strategy == "sentence":
+        return _chunk_sentences(text, chunk_chars, overlap, min_chunk_chars)
+    return _chunk_fixed(text, chunk_chars, overlap, min_chunk_chars)
+
+
+def _chunk_fixed(text: str, chunk_chars: int, overlap: int, min_chunk_chars: int) -> List[str]:
     chunks: List[str] = []
     start = 0
     text_length = len(text)
     while start < text_length:
         end = min(start + chunk_chars, text_length)
         chunk = text[start:end].strip()
-        if chunk:
+        if chunk and (len(chunk) >= min_chunk_chars or not chunks):
             chunks.append(chunk)
         if end == text_length:
             break
         start = max(0, end - overlap)
 
     return chunks
+
+
+def _chunk_paragraphs(text: str, chunk_chars: int, overlap: int, min_chunk_chars: int) -> List[str]:
+    paragraphs = [item.strip() for item in re.split(r"\n\s*\n+", text) if item.strip()]
+    if not paragraphs:
+        return _chunk_fixed(text, chunk_chars, overlap, min_chunk_chars)
+
+    chunks: List[str] = []
+    buffer = ""
+    for paragraph in paragraphs:
+        if len(paragraph) > chunk_chars:
+            if buffer.strip():
+                chunks.append(buffer.strip())
+                buffer = ""
+            chunks.extend(_chunk_fixed(paragraph, chunk_chars, overlap, min_chunk_chars))
+            continue
+
+        candidate = paragraph if not buffer else f"{buffer}\n\n{paragraph}"
+        if len(candidate) <= chunk_chars:
+            buffer = candidate
+            continue
+
+        if buffer.strip() and (len(buffer.strip()) >= min_chunk_chars or not chunks):
+            chunks.append(buffer.strip())
+        buffer = _tail_overlap(buffer, overlap)
+        buffer = paragraph if not buffer else f"{buffer}\n\n{paragraph}"
+
+    if buffer.strip():
+        chunks.append(buffer.strip())
+    return [chunk for chunk in chunks if chunk]
+
+
+def _chunk_sentences(text: str, chunk_chars: int, overlap: int, min_chunk_chars: int) -> List[str]:
+    sentences = [item.strip() for item in re.split(r"(?<=[.!?])\s+", text) if item.strip()]
+    if not sentences:
+        return _chunk_fixed(text, chunk_chars, overlap, min_chunk_chars)
+
+    chunks: List[str] = []
+    buffer = ""
+    for sentence in sentences:
+        if len(sentence) > chunk_chars:
+            if buffer.strip():
+                chunks.append(buffer.strip())
+                buffer = ""
+            chunks.extend(_chunk_fixed(sentence, chunk_chars, overlap, min_chunk_chars))
+            continue
+
+        candidate = sentence if not buffer else f"{buffer} {sentence}"
+        if len(candidate) <= chunk_chars:
+            buffer = candidate
+            continue
+
+        if buffer.strip() and (len(buffer.strip()) >= min_chunk_chars or not chunks):
+            chunks.append(buffer.strip())
+        buffer = _tail_overlap(buffer, overlap)
+        buffer = sentence if not buffer else f"{buffer} {sentence}"
+
+    if buffer.strip():
+        chunks.append(buffer.strip())
+    return [chunk for chunk in chunks if chunk]
+
+
+def _tail_overlap(text: str, overlap: int) -> str:
+    if overlap <= 0:
+        return ""
+    return text[-overlap:].strip()
 
 
 def stable_id(text: str) -> int:

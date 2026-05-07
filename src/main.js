@@ -33,11 +33,18 @@ Alpine.data("pipelineStatus", (initialConfig) => ({
     collection: initialConfig.collection || "",
     model: initialConfig.model || "",
     embed_model: initialConfig.embed_model || "",
+    judge_enabled: initialConfig.judge_enabled ?? true,
+    judge_provider: initialConfig.judge_provider || "ollama",
+    judge_model: initialConfig.judge_model || "",
     ollama_url: initialConfig.ollama_url || "",
     qdrant_url: initialConfig.qdrant_url || "",
   },
-  modelOptions: { installed: [], recommended: { generation: [], embedding: [] } },
+  modelOptions: { installed: [], recommended: { generation: [], embedding: [], judge: [] } },
   savedPrompts: [],
+  ingestionPresets: [],
+  activeIngestionPreset: null,
+  activeIngestionPresetId: "",
+  latestIngestionRun: null,
   pipelineCheck: null,
   ollamaRuntime: null,
   stats: {},
@@ -73,13 +80,16 @@ Alpine.data("pipelineStatus", (initialConfig) => ({
   configChecking: false,
   setupRunning: false,
   ingestRunning: false,
+  ingestionPresetSaving: false,
   resetRunning: false,
   askRunning: false,
+  judgeRunningRunId: null,
 
   async init() {
     await this.refresh();
     await this.loadModelOptions();
     await this.loadSavedPrompts();
+    await this.loadIngestionPresets();
   },
 
   setNotice(message, type = "success") {
@@ -88,6 +98,10 @@ Alpine.data("pipelineStatus", (initialConfig) => ({
   },
 
   setTab(tab) {
+    if (tab === "judge" && !this.config.judge_enabled) {
+      this.setNotice("Judge is currently disabled in Pipeline Setup. Captured answers are still available for later evaluation.", "error");
+      return;
+    }
     this.activeTab = tab;
   },
 
@@ -97,7 +111,7 @@ Alpine.data("pipelineStatus", (initialConfig) => ({
       return;
     }
     this.askRunsSortKey = key;
-    this.askRunsSortDir = key === "question" || key === "style" || key === "model" || key === "rating" ? "asc" : "desc";
+    this.askRunsSortDir = key === "question" || key === "style" || key === "model" || key === "ingestion" || key === "rating" ? "asc" : "desc";
   },
 
   sortIndicator(key) {
@@ -118,6 +132,8 @@ Alpine.data("pipelineStatus", (initialConfig) => ({
           return (run.input?.answer_style || "").toLowerCase();
         case "model":
           return (run.model || "").toLowerCase();
+        case "ingestion":
+          return (run.input?.ingestion_preset_name || run.meta?.ingestion_preset_name || "").toLowerCase();
         case "top_score":
           return Number(run.meta?.top_semantic_score ?? -1);
         case "latency":
@@ -175,11 +191,15 @@ Alpine.data("pipelineStatus", (initialConfig) => ({
       this.corpus = corpus;
       this.askRuns = askRuns.runs || [];
       this.config = pipelineConfig;
+      this.latestIngestionRun = stats.latest_ingestion_run || null;
       this.draftConfig = {
         docs_path: pipelineConfig.docs_path || "",
         collection: pipelineConfig.collection || "",
         model: pipelineConfig.model || "",
         embed_model: pipelineConfig.embed_model || "",
+        judge_enabled: pipelineConfig.judge_enabled ?? true,
+        judge_provider: pipelineConfig.judge_provider || "ollama",
+        judge_model: pipelineConfig.judge_model || "",
         ollama_url: pipelineConfig.ollama_url || "",
         qdrant_url: pipelineConfig.qdrant_url || "",
       };
@@ -212,6 +232,18 @@ Alpine.data("pipelineStatus", (initialConfig) => ({
     }
   },
 
+  async loadIngestionPresets() {
+    try {
+      const result = await fetchJson("/api/ingestion-presets");
+      this.ingestionPresets = result.presets || [];
+      this.activeIngestionPreset = result.active_preset || null;
+      this.activeIngestionPresetId = result.active_preset_id ? String(result.active_preset_id) : "";
+      this.latestIngestionRun = result.latest_run || this.latestIngestionRun;
+    } catch (error) {
+      this.setNotice(error.message, "error");
+    }
+  },
+
   async loadOllamaRuntime() {
     try {
       this.ollamaRuntime = await fetchJson("/api/ollama-runtime");
@@ -234,7 +266,18 @@ Alpine.data("pipelineStatus", (initialConfig) => ({
     }
     if (kind === "embedding") {
       this.draftConfig.embed_model = name;
+      return;
     }
+    if (kind === "judge") {
+      this.draftConfig.judge_model = name;
+    }
+  },
+
+  judgeSummary() {
+    if (!this.config.judge_enabled) {
+      return "Judge disabled. Captured answers are still saved for later evaluation.";
+    }
+    return `Judge enabled with ${this.config.judge_provider}:${this.config.judge_model}.`;
   },
 
   applySelectedPrompt() {
@@ -267,11 +310,49 @@ Alpine.data("pipelineStatus", (initialConfig) => ({
     this.setNotice("Using an ad hoc question instead of a saved prompt.");
   },
 
+  async setActiveIngestionPreset() {
+    if (!this.activeIngestionPresetId) {
+      this.setNotice("Choose an ingestion preset first.", "error");
+      return;
+    }
+
+    this.ingestionPresetSaving = true;
+    try {
+      const result = await fetchJson("/api/ingestion-presets/active", {
+        method: "PUT",
+        body: JSON.stringify({ preset_id: this.activeIngestionPresetId }),
+      });
+      this.activeIngestionPreset = result.active_preset || this.activeIngestionPreset;
+      this.activeIngestionPresetId = this.activeIngestionPreset?.id ? String(this.activeIngestionPreset.id) : this.activeIngestionPresetId;
+      await this.loadIngestionPresets();
+      this.setNotice(`Active ingestion preset is now "${this.activeIngestionPreset?.name}".`);
+    } catch (error) {
+      this.setNotice(error.message, "error");
+    } finally {
+      this.ingestionPresetSaving = false;
+    }
+  },
+
   evaluationLabel(run) {
     if (!run?.evaluation || run.evaluation.satisfactory === null || run.evaluation.satisfactory === undefined) {
       return "-";
     }
     return run.evaluation.satisfactory ? "Satisfactory" : "Not satisfactory";
+  },
+
+  judgeLabel(run) {
+    return run?.judge?.label || "Not judged";
+  },
+
+  judgeLabelClass(run) {
+    const label = run?.judge?.label || "";
+    if (label === "PASS") {
+      return "bg-emerald-100 text-emerald-800";
+    }
+    if (label.startsWith("FAIL_")) {
+      return "bg-amber-100 text-amber-900";
+    }
+    return "bg-zinc-100 text-zinc-700";
   },
 
   applyUpdatedRun(updatedRun) {
@@ -402,19 +483,20 @@ Alpine.data("pipelineStatus", (initialConfig) => ({
       this.setupProgress = JSON.parse(event.data);
     });
 
-    events.addEventListener("done", (event) => {
-      const result = JSON.parse(event.data);
-      this.setupProgress = {
-        ...this.setupProgress,
-        status: "ready",
-        model_percent: 100,
-        overall_percent: 100,
-      };
-      this.setNotice(`Models ready: ${result.embed_model} and ${result.model_name}.`);
-      this.setupRunning = false;
-      events.close();
-      this.setupEvents = null;
-    });
+      events.addEventListener("done", (event) => {
+        const result = JSON.parse(event.data);
+        this.setupProgress = {
+          ...this.setupProgress,
+          status: "ready",
+          model_percent: 100,
+          overall_percent: 100,
+        };
+      const judgePart = result.judge_enabled ? `, and judge ${result.judge_model}` : "";
+      this.setNotice(`Models ready: ${result.embed_model}, ${result.model_name}${judgePart}.`);
+        this.setupRunning = false;
+        events.close();
+        this.setupEvents = null;
+      });
 
     events.addEventListener("failed", (event) => {
       const result = JSON.parse(event.data);
@@ -489,7 +571,8 @@ Alpine.data("pipelineStatus", (initialConfig) => ({
     try {
       const result = await fetchJson("/api/ingest", { method: "POST" });
       this.activeTab = "query";
-      this.setNotice(`Ingested ${result.files} files, ${result.chunks} chunks, and ${result.embeddings} embeddings.`);
+      this.latestIngestionRun = result.ingestion_run || null;
+      this.setNotice(`Ingested ${result.files} files, ${result.chunks} chunks, and ${result.embeddings} embeddings using ${result.ingestion_preset?.name || 'the active preset'}.`);
       await this.refresh();
     } catch (error) {
       this.setNotice(error.message, "error");
@@ -583,6 +666,28 @@ Alpine.data("pipelineStatus", (initialConfig) => ({
       this.setNotice(error.message, "error");
     } finally {
       this.askRunning = false;
+    }
+  },
+
+  async evaluateRunWithJudge(run) {
+    if (!this.config.judge_enabled) {
+      this.setNotice("Judge is disabled. You can still capture answers now and evaluate them later after re-enabling it.", "error");
+      return;
+    }
+    this.judgeRunningRunId = run.id;
+    this.activeTab = "judge";
+    this.setNotice(`Evaluating run ${run.id} with ${this.config.judge_provider}:${this.config.judge_model}.`);
+    try {
+      const result = await fetchJson(`/api/ask-runs/${run.id}/judge`, { method: "POST" });
+      this.applyUpdatedRun(result.run);
+      if (this.currentRun?.id === result.run.id) {
+        this.currentRun = { ...this.currentRun, ...result.run };
+      }
+      this.setNotice(`Judge completed for run ${run.id}: ${result.judge.label}.`);
+    } catch (error) {
+      this.setNotice(error.message, "error");
+    } finally {
+      this.judgeRunningRunId = null;
     }
   },
 

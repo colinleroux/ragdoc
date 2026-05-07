@@ -34,6 +34,36 @@ class ModelCatalog(TimestampMixin, db.Model):
     sort_order = db.Column(db.Integer, nullable=False, default=100)
 
 
+class IngestionPreset(TimestampMixin, db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(160), nullable=False, unique=True, index=True)
+    purpose = db.Column(db.String(255), nullable=True)
+    config_json = db.Column(db.JSON, nullable=False, default=dict)
+    version = db.Column(db.Integer, nullable=False, default=1)
+    active = db.Column(db.Boolean, nullable=False, default=True)
+
+    runs = db.relationship(
+        "IngestionRun", back_populates="preset", cascade="all, delete-orphan"
+    )
+
+
+class IngestionRun(TimestampMixin, db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    ingestion_preset_id = db.Column(
+        db.Integer, db.ForeignKey("ingestion_preset.id"), nullable=False, index=True
+    )
+    name = db.Column(db.String(160), nullable=True)
+    docs_path = db.Column(db.String(500), nullable=False)
+    collection = db.Column(db.String(255), nullable=False, index=True)
+    config_json = db.Column(db.JSON, nullable=False, default=dict)
+    files_count = db.Column(db.Integer, nullable=False, default=0)
+    doc_units_count = db.Column(db.Integer, nullable=False, default=0)
+    chunk_count = db.Column(db.Integer, nullable=False, default=0)
+    embedding_count = db.Column(db.Integer, nullable=False, default=0)
+
+    preset = db.relationship("IngestionPreset", back_populates="runs")
+
+
 class DataSource(TimestampMixin, db.Model):
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(160), nullable=False)

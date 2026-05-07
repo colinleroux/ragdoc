@@ -192,6 +192,7 @@
             <tr>
               <th class="px-4 py-3">Run</th>
               <th class="px-4 py-3">Model</th>
+              <th class="px-4 py-3">Ingestion</th>
               <th class="px-4 py-3 text-right">Top Score</th>
               <th class="px-4 py-3 text-right">Latency</th>
               <th class="px-4 py-3">Rating</th>
@@ -207,6 +208,7 @@
                 <p class="mt-1 text-xs text-zinc-500">{{ run.provider or "Provider TBD" }}</p>
               </td>
               <td class="px-4 py-3 text-zinc-700">{{ run.model or "-" }}</td>
+              <td class="px-4 py-3 text-zinc-700">{{ run.input_json.get("ingestion_preset_name") if run.input_json else "-" }}</td>
               <td class="px-4 py-3 text-right text-zinc-700">{{ "%.3f"|format(score) if score is not none else "-" }}</td>
               <td class="px-4 py-3 text-right text-zinc-700">{{ "%.1fs"|format(run.latency_ms / 1000) if run.latency_ms else "-" }}</td>
               <td class="px-4 py-3 text-zinc-700">

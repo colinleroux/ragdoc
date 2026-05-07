@@ -5,8 +5,10 @@ from .embeddings import (
     ollama_list_models,
     ollama_embed,
     ollama_generate,
+    ollama_generate_with_model,
     ollama_pull_model,
 )
+from .judge import evaluate_run_with_judge
 from .loaders import list_corpus_files, read_docs
 from .options import parse_chat_options
 from .pipeline import delete_ingested_source, ingest_docs, list_ingested_docs, reset_ingestion

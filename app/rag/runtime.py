@@ -11,6 +11,9 @@ SETTING_MAP = {
     "ollama_base_url": "OLLAMA_BASE_URL",
     "model_name": "MODEL_NAME",
     "embed_model": "EMBED_MODEL",
+    "judge_enabled": "JUDGE_ENABLED",
+    "judge_provider": "JUDGE_PROVIDER",
+    "judge_model": "JUDGE_MODEL",
     "qdrant_url": "QDRANT_URL",
     "collection_name": "COLLECTION_NAME",
     "docs_path": "DOCS_PATH",
@@ -133,6 +136,21 @@ def _config_value(app_cfg: Dict[str, Any], setting_key: str) -> str:
     return str(app_cfg[SETTING_MAP[setting_key]])
 
 
+def _config_bool(app_cfg: Dict[str, Any], setting_key: str) -> bool:
+    value = app_cfg[SETTING_MAP[setting_key]]
+    if isinstance(value, bool):
+        return value
+    return str(value).strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _normalize_bool(value: Any, default: bool = True) -> bool:
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    return str(value).strip().lower() in {"1", "true", "yes", "on"}
+
+
 def get_pipeline_overrides() -> Dict[str, str]:
     return {row.key: row.value for row in PipelineSetting.query.all() if row.key in SETTING_MAP}
 
@@ -140,7 +158,10 @@ def get_pipeline_overrides() -> Dict[str, str]:
 def resolve_pipeline_config(app_cfg: Dict[str, Any]) -> Dict[str, Any]:
     cfg = dict(app_cfg)
     for key, value in get_pipeline_overrides().items():
-        cfg[SETTING_MAP[key]] = value
+        if key == "judge_enabled":
+            cfg[SETTING_MAP[key]] = _normalize_bool(value, default=True)
+        else:
+            cfg[SETTING_MAP[key]] = value
     return cfg
 
 
@@ -151,6 +172,9 @@ def pipeline_config_payload(app_cfg: Dict[str, Any]) -> Dict[str, Any]:
         "collection": _config_value(app_cfg, "collection_name"),
         "model": _config_value(app_cfg, "model_name"),
         "embed_model": _config_value(app_cfg, "embed_model"),
+        "judge_enabled": _config_bool(app_cfg, "judge_enabled"),
+        "judge_provider": _config_value(app_cfg, "judge_provider"),
+        "judge_model": _config_value(app_cfg, "judge_model"),
         "ollama_url": _config_value(app_cfg, "ollama_base_url"),
         "qdrant_url": _config_value(app_cfg, "qdrant_url"),
     }
@@ -160,6 +184,9 @@ def pipeline_config_payload(app_cfg: Dict[str, Any]) -> Dict[str, Any]:
         "collection": str(effective["COLLECTION_NAME"]),
         "model": str(effective["MODEL_NAME"]),
         "embed_model": str(effective["EMBED_MODEL"]),
+        "judge_enabled": bool(effective["JUDGE_ENABLED"]),
+        "judge_provider": str(effective["JUDGE_PROVIDER"]),
+        "judge_model": str(effective["JUDGE_MODEL"]),
         "ollama_url": str(effective["OLLAMA_BASE_URL"]),
         "qdrant_url": str(effective["QDRANT_URL"]),
         "defaults": defaults,
@@ -168,7 +195,7 @@ def pipeline_config_payload(app_cfg: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-def _normalize_settings_payload(payload: Dict[str, Any], app_cfg: Dict[str, Any]) -> Dict[str, str]:
+def _normalize_settings_payload(payload: Dict[str, Any], app_cfg: Dict[str, Any]) -> Dict[str, Any]:
     normalized = {
         "docs_path": str(payload.get("docs_path", _config_value(app_cfg, "docs_path"))).strip(),
         "collection_name": str(
@@ -178,6 +205,17 @@ def _normalize_settings_payload(payload: Dict[str, Any], app_cfg: Dict[str, Any]
         "embed_model": str(
             payload.get("embed_model", _config_value(app_cfg, "embed_model"))
         ).strip(),
+        "judge_enabled": _normalize_bool(
+            payload.get("judge_enabled", _config_bool(app_cfg, "judge_enabled")),
+            default=True,
+        ),
+        "judge_provider": str(
+            payload.get("judge_provider", _config_value(app_cfg, "judge_provider"))
+        ).strip()
+        .lower(),
+        "judge_model": str(
+            payload.get("judge_model", _config_value(app_cfg, "judge_model"))
+        ).strip(),
         "ollama_base_url": str(
             payload.get("ollama_url", _config_value(app_cfg, "ollama_base_url"))
         ).strip(),
@@ -185,8 +223,16 @@ def _normalize_settings_payload(payload: Dict[str, Any], app_cfg: Dict[str, Any]
     }
 
     for key, value in normalized.items():
+        if key == "judge_enabled":
+            continue
         if not value:
             raise AppError(f"{key.replace('_', ' ')} is required.", 400)
+
+    if normalized["judge_provider"] not in {"ollama"}:
+        raise AppError(
+            "judge provider must currently be ollama. External API providers can be added later.",
+            400,
+        )
 
     for key in ("ollama_base_url", "qdrant_url"):
         value = normalized[key].lower()
@@ -201,11 +247,12 @@ def save_pipeline_settings(payload: Dict[str, Any], app_cfg: Dict[str, Any]) -> 
 
     try:
         for key, value in normalized.items():
+            stored_value = "true" if value is True else "false" if value is False else value
             row = PipelineSetting.query.filter_by(key=key).first()
             if row is None:
-                db.session.add(PipelineSetting(key=key, value=value))
+                db.session.add(PipelineSetting(key=key, value=stored_value))
             else:
-                row.value = value
+                row.value = stored_value
         db.session.commit()
     except Exception:
         db.session.rollback()
@@ -279,9 +326,15 @@ def pipeline_model_options(installed_models: List[Dict[str, Any]]) -> Dict[str, 
         generation_rows = MODEL_PRESETS["generation"]
         embedding_rows = MODEL_PRESETS["embedding"]
 
+    judge_rows = sorted(
+        generation_rows,
+        key=lambda item: (0 if item["name"] == "qwen2.5:3b" else 1, not item.get("recommended", False), item["name"]),
+    )
+
     return {
         "generation": attach_installed_flag(generation_rows),
         "embedding": attach_installed_flag(embedding_rows),
+        "judge": attach_installed_flag(judge_rows),
     }
 
 
@@ -322,6 +375,10 @@ def check_pipeline_settings(payload: Dict[str, Any], app_cfg: Dict[str, Any]) ->
             "generation_installed": False,
             "embedding_model": normalized["embed_model"],
             "embedding_installed": False,
+            "judge_enabled": normalized["judge_enabled"],
+            "judge_provider": normalized["judge_provider"],
+            "judge_model": normalized["judge_model"],
+            "judge_installed": False,
         },
         "qdrant": {
             "url": normalized["qdrant_url"],
@@ -341,6 +398,9 @@ def check_pipeline_settings(payload: Dict[str, Any], app_cfg: Dict[str, Any]) ->
         checks["ollama"]["installed_count"] = len(installed_models)
         checks["ollama"]["generation_installed"] = normalized["model_name"] in installed_names
         checks["ollama"]["embedding_installed"] = normalized["embed_model"] in installed_names
+        checks["ollama"]["judge_installed"] = (
+            normalized["judge_model"] in installed_names if normalized["judge_enabled"] else False
+        )
     except AppError as exc:
         checks["ollama"]["error"] = exc.message
 
@@ -357,8 +417,11 @@ def check_pipeline_settings(payload: Dict[str, Any], app_cfg: Dict[str, Any]) ->
     checks["same_ollama_for_both_models"] = True
     checks["summary"] = [
         "Generation and embedding models both use the same Ollama base URL in this app.",
+        "The judge model uses the same Ollama URL too when judge provider is set to Ollama.",
+        "You can disable judging without affecting captured answers, then come back and evaluate runs later.",
         "Changing from dolphin3:latest to llama3.2:1b usually means changing the model tag only; the Ollama URL and port stay the same unless you are pointing at a different Ollama server.",
         "Embedding models also use the same Ollama URL. You typically change only the embedding model name.",
+        "Judge provider is separate so we can add external API judging later without reshaping the app.",
     ]
 
     return checks

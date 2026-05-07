@@ -34,7 +34,7 @@
 
   <section class="mt-5 border border-zinc-200 bg-white shadow-sm">
     <div class="border-b border-zinc-200 px-4 py-3">
-      <div class="grid grid-cols-2 gap-2 sm:grid-cols-4">
+      <div class="grid grid-cols-2 gap-2 sm:grid-cols-5">
         <button
           type="button"
           class="px-3 py-2 text-sm font-medium transition"
@@ -66,6 +66,14 @@
           @click="setTab('answers')"
         >
           Answers
+        </button>
+        <button
+          type="button"
+          class="px-3 py-2 text-sm font-medium transition"
+          :class="activeTab === 'judge' ? 'bg-zinc-900 text-white' : 'border border-zinc-300 bg-white text-zinc-800 hover:border-zinc-400'"
+          @click="setTab('judge')"
+        >
+          Judge
         </button>
       </div>
     </div>
@@ -118,6 +126,33 @@
               <option :value="item.name"></option>
             </template>
           </datalist>
+        </div>
+        <div class="grid gap-3 sm:grid-cols-[140px_minmax(0,1fr)]">
+          <label class="flex items-center gap-3 rounded border border-zinc-200 bg-zinc-50 px-3 py-3 text-sm text-zinc-800 sm:col-span-2">
+            <input type="checkbox" class="h-4 w-4 border-zinc-300 text-emerald-700 focus:ring-emerald-600" x-model="draftConfig.judge_enabled">
+            <span>
+              <span class="font-medium">Enable judge</span>
+              <span class="mt-1 block text-xs text-zinc-500">Keep capturing answer details even when judging is turned off, so runs can be evaluated later.</span>
+            </span>
+          </label>
+          <div>
+            <label class="text-xs font-medium uppercase text-zinc-500" for="judge-provider">Judge provider</label>
+            <select id="judge-provider" class="mt-1 w-full border border-zinc-300 bg-white px-3 py-2 text-sm disabled:bg-zinc-100 disabled:text-zinc-500" x-model="draftConfig.judge_provider" :disabled="!draftConfig.judge_enabled">
+              <option value="ollama">Ollama</option>
+            </select>
+          </div>
+          <div>
+            <label class="text-xs font-medium uppercase text-zinc-500" for="judge-model">Judge model</label>
+            <input id="judge-model" list="judge-models" type="text" class="mt-1 w-full border border-zinc-300 px-3 py-2 text-sm disabled:bg-zinc-100 disabled:text-zinc-500" x-model="draftConfig.judge_model" :disabled="!draftConfig.judge_enabled">
+            <datalist id="judge-models">
+              <template x-for="item in modelOptions.installed" :key="`installed-judge-${item.name}`">
+                <option :value="item.name"></option>
+              </template>
+              <template x-for="item in modelOptions.recommended.judge || []" :key="`recommended-judge-${item.name}`">
+                <option :value="item.name"></option>
+              </template>
+            </datalist>
+          </div>
         </div>
         <div>
           <label class="text-xs font-medium uppercase text-zinc-500" for="ollama-url">Ollama URL</label>
@@ -196,6 +231,11 @@
               <span class="font-medium text-zinc-900" x-text="pipelineCheck?.ollama?.embedding_model"></span>
               <span x-text="pipelineCheck?.ollama?.embedding_installed ? ' - installed' : ' - not installed yet'"></span>
             </p>
+            <p class="mt-1 text-xs text-zinc-600">
+              Judge model:
+              <span class="font-medium text-zinc-900" x-text="pipelineCheck?.ollama?.judge_model"></span>
+              <span x-text="pipelineCheck?.ollama?.judge_enabled ? (pipelineCheck?.ollama?.judge_installed ? ' - installed' : ' - not installed yet') : ' - judging disabled'"></span>
+            </p>
             <p class="mt-2 text-xs text-red-700" x-show="pipelineCheck?.ollama?.error" x-text="pipelineCheck?.ollama?.error"></p>
           </div>
 
@@ -247,6 +287,19 @@
               <p class="text-sm font-semibold text-zinc-950">
                 <span x-text="item.name"></span>
                 <span class="ml-2 text-xs font-medium text-sky-700" x-show="item.installed">Installed</span>
+              </p>
+              <p class="mt-1 text-xs text-zinc-600"><span x-text="item.family"></span> <span x-text="`- ${item.size_label}`"></span></p>
+              <p class="mt-2 text-sm text-zinc-700" x-text="item.notes"></p>
+            </button>
+          </template>
+        </div>
+        <div class="mt-4 space-y-2">
+          <h4 class="text-sm font-semibold uppercase text-zinc-600">Judge candidates</h4>
+          <template x-for="item in modelOptions.recommended.judge || []" :key="`judge-preset-${item.name}`">
+            <button type="button" class="w-full border border-zinc-200 bg-zinc-50 p-3 text-left transition hover:border-amber-500 hover:bg-amber-50" @click="usePipelineModel('judge', item.name)">
+              <p class="text-sm font-semibold text-zinc-950">
+                <span x-text="item.name"></span>
+                <span class="ml-2 text-xs font-medium text-amber-700" x-show="item.installed">Installed</span>
               </p>
               <p class="mt-1 text-xs text-zinc-600"><span x-text="item.family"></span> <span x-text="`- ${item.size_label}`"></span></p>
               <p class="mt-2 text-sm text-zinc-700" x-text="item.notes"></p>
@@ -317,6 +370,18 @@
             <div>
               <dt class="text-zinc-500">Embedding model</dt>
               <dd class="mt-1 font-medium text-zinc-900" x-text="config.embed_model"></dd>
+            </div>
+            <div>
+              <dt class="text-zinc-500">Judge enabled</dt>
+              <dd class="mt-1 font-medium text-zinc-900" x-text="config.judge_enabled ? 'Yes' : 'No'"></dd>
+            </div>
+            <div>
+              <dt class="text-zinc-500">Judge provider</dt>
+              <dd class="mt-1 font-medium text-zinc-900" x-text="config.judge_provider"></dd>
+            </div>
+            <div>
+              <dt class="text-zinc-500">Judge model</dt>
+              <dd class="mt-1 font-medium text-zinc-900" x-text="config.judge_model"></dd>
             </div>
             <div>
               <dt class="text-zinc-500">Ollama</dt>
@@ -530,6 +595,10 @@
         <h2 class="text-lg font-semibold text-zinc-950">Input Notes</h2>
         <dl class="mt-4 space-y-3 text-sm">
           <div>
+            <dt class="text-zinc-500">Active ingestion preset</dt>
+            <dd class="mt-1 font-medium text-zinc-900" x-text="activeIngestionPreset?.name || '-'"></dd>
+          </div>
+          <div>
             <dt class="text-zinc-500">Docs path</dt>
             <dd class="mt-1 break-words font-medium text-zinc-900" x-text="config.docs_path"></dd>
           </div>
@@ -542,6 +611,25 @@
             <dd class="mt-1 break-words font-medium text-zinc-900" x-text="config.collection"></dd>
           </div>
         </dl>
+        <div class="mt-5 border border-zinc-200 bg-zinc-50 p-3">
+          <div class="flex items-center justify-between gap-3">
+            <label class="text-xs font-medium uppercase text-zinc-500" for="active-ingestion-preset">Ingestion preset</label>
+            <a href="/ingestion-settings/" class="text-xs font-medium text-emerald-700 hover:text-emerald-900">Manage ingestion settings</a>
+          </div>
+          <select id="active-ingestion-preset" class="mt-2 w-full border border-zinc-300 bg-white px-3 py-2 text-sm" x-model="activeIngestionPresetId">
+            <template x-for="preset in ingestionPresets" :key="preset.id">
+              <option :value="String(preset.id)" x-text="preset.name"></option>
+            </template>
+          </select>
+          <button
+            type="button"
+            class="mt-3 rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm font-medium text-zinc-800 shadow-sm transition hover:border-emerald-500 hover:text-emerald-800 disabled:cursor-not-allowed disabled:opacity-60"
+            :disabled="ingestionPresetSaving || !activeIngestionPresetId"
+            @click="setActiveIngestionPreset()"
+          >
+            Set Active Preset
+          </button>
+        </div>
         <div class="mt-5 flex flex-wrap gap-2">
           <button
             type="button"
@@ -559,6 +647,12 @@
           >
             Reset
           </button>
+        </div>
+        <div class="mt-5 border border-sky-200 bg-sky-50 px-3 py-3 text-xs text-sky-900" x-show="latestIngestionRun" x-cloak>
+          Latest ingest:
+          <span class="font-medium" x-text="latestIngestionRun?.preset_name || '-'"></span>
+          <span x-text="` - ${latestIngestionRun?.chunk_count || 0} chunks`"></span>
+          <span x-text="` - ${latestIngestionRun?.embedding_count || 0} embeddings`"></span>
         </div>
         <div class="mt-5 border border-amber-200 bg-amber-50 px-3 py-3 text-xs text-amber-900">
           Add or replace files in the docs folder, then run ingest. Removing a file from the folder does not automatically remove its already-ingested vectors unless you reset or remove that source here.
@@ -787,6 +881,14 @@
           <p class="mt-1 font-semibold text-zinc-950" x-text="answerMeta.collection || currentRun?.input?.collection || config.collection"></p>
         </div>
         <div class="border border-zinc-200 bg-zinc-50 px-3 py-2">
+          <p class="uppercase text-zinc-500">Ingestion preset</p>
+          <p class="mt-1 font-semibold text-zinc-950" x-text="answerMeta.ingestion_preset_name || currentRun?.input?.ingestion_preset_name || latestIngestionRun?.preset_name || '-'"></p>
+        </div>
+        <div class="border border-zinc-200 bg-zinc-50 px-3 py-2">
+          <p class="uppercase text-zinc-500">Judge setup</p>
+          <p class="mt-1 font-semibold text-zinc-950" x-text="currentRun?.input?.judge_enabled === false ? 'Disabled at capture time' : `${currentRun?.input?.judge_provider || config.judge_provider}:${currentRun?.input?.judge_model || config.judge_model}`"></p>
+        </div>
+        <div class="border border-zinc-200 bg-zinc-50 px-3 py-2">
           <p class="uppercase text-zinc-500">Answer style</p>
           <p class="mt-1 font-semibold capitalize text-zinc-950" x-text="currentRun?.input?.answer_style || answerStyle"></p>
         </div>
@@ -862,6 +964,11 @@
                 <span x-text="`Model${sortIndicator('model')}`"></span>
               </button>
             </th>
+            <th class="px-4 py-3">
+              <button type="button" class="transition hover:text-zinc-900" @click="sortAskRunsBy('ingestion')">
+                <span x-text="`Ingestion${sortIndicator('ingestion')}`"></span>
+              </button>
+            </th>
             <th class="px-4 py-3 text-right">
               <button type="button" class="transition hover:text-zinc-900" @click="sortAskRunsBy('top_score')">
                 <span x-text="`Top Score${sortIndicator('top_score')}`"></span>
@@ -877,8 +984,10 @@
                 <span x-text="`Rating${sortIndicator('rating')}`"></span>
               </button>
             </th>
+            <th class="px-4 py-3">Judge</th>
             <th class="px-4 py-3">Notes</th>
             <th class="px-4 py-3 text-right">Open</th>
+            <th class="px-4 py-3 text-right">Evaluate</th>
             <th class="px-4 py-3 text-right">TXT</th>
             <th class="px-4 py-3 text-right">Download</th>
             <th class="px-4 py-3 text-right">Remove</th>
@@ -890,6 +999,7 @@
               <td class="max-w-[520px] truncate px-4 py-3 font-medium text-zinc-950" x-text="run.input?.question || run.name"></td>
               <td class="px-4 py-3 text-zinc-600" x-text="run.input?.answer_style || '-'"></td>
               <td class="px-4 py-3 text-zinc-700" x-text="run.model || '-'"></td>
+              <td class="px-4 py-3 text-zinc-700" x-text="run.input?.ingestion_preset_name || run.meta?.ingestion_preset_name || '-'"></td>
               <td class="px-4 py-3 text-right text-zinc-700" x-text="run.meta?.top_semantic_score ?? '-'"></td>
               <td class="px-4 py-3 text-right text-zinc-700" x-text="run.latency_ms ? `${(run.latency_ms / 1000).toFixed(1)}s` : '-'"></td>
               <td class="px-4 py-3">
@@ -919,6 +1029,12 @@
                   </button>
                 </div>
               </td>
+              <td class="px-4 py-3">
+                <div class="space-y-2">
+                  <span class="rounded-full px-2 py-1 text-xs font-medium" :class="judgeLabelClass(run)" x-text="judgeLabel(run)"></span>
+                  <p class="max-w-[220px] text-xs text-zinc-600" x-show="run.judge?.main_failure_mode" x-text="run.judge?.main_failure_mode"></p>
+                </div>
+              </td>
               <td class="max-w-[220px] px-4 py-3 text-zinc-600">
                 <div class="flex items-start justify-between gap-2">
                   <p class="truncate text-sm" x-text="run.evaluation?.notes || '-'"></p>
@@ -938,6 +1054,17 @@
                   @click="loadCapturedRun(run.id)"
                   >
                   Open
+                </button>
+              </td>
+              <td class="px-4 py-3 text-right">
+                <button
+                  type="button"
+                  class="rounded-md border border-sky-300 bg-white px-2 py-1 text-xs font-medium text-sky-800 shadow-sm transition hover:bg-sky-50 disabled:cursor-not-allowed disabled:opacity-60"
+                  :disabled="judgeRunningRunId === run.id || !config.judge_enabled"
+                  @click="evaluateRunWithJudge(run)"
+                >
+                  <span x-show="judgeRunningRunId !== run.id" x-text="config.judge_enabled ? 'Evaluate' : 'Judge off'"></span>
+                  <span x-show="judgeRunningRunId === run.id">Judging...</span>
                 </button>
               </td>
               <td class="px-4 py-3 text-right">
@@ -968,12 +1095,210 @@
             </tr>
           </template>
           <tr x-show="askRuns.length === 0">
-            <td colspan="11" class="px-4 py-8 text-center text-zinc-500">No captured answers yet.</td>
+            <td colspan="14" class="px-4 py-8 text-center text-zinc-500">No captured answers yet.</td>
           </tr>
         </tbody>
       </table>
     </div>
     </section>
+  </section>
+
+  <section class="mt-5 space-y-5" x-show="activeTab === 'judge'" x-cloak>
+    <div class="grid gap-5 lg:grid-cols-[320px_minmax(0,1fr)]">
+      <aside class="space-y-5">
+        <section class="border border-zinc-200 bg-white p-4 shadow-sm">
+          <h2 class="text-lg font-semibold text-zinc-950">Judge Setup</h2>
+          <dl class="mt-4 space-y-3 text-sm">
+            <div>
+              <dt class="text-zinc-500">Provider</dt>
+              <dd class="mt-1 font-medium text-zinc-900" x-text="config.judge_enabled ? config.judge_provider : '-'"></dd>
+            </div>
+            <div>
+              <dt class="text-zinc-500">Model</dt>
+              <dd class="mt-1 font-medium text-zinc-900" x-text="config.judge_enabled ? config.judge_model : '-'"></dd>
+            </div>
+            <div>
+              <dt class="text-zinc-500">Rule</dt>
+              <dd class="mt-1 text-zinc-700" x-text="config.judge_enabled ? 'Judge only against retrieved chunks. No outside knowledge.' : 'Judging is disabled right now. Captured answers are still being saved for later evaluation.'"></dd>
+            </div>
+          </dl>
+          <p class="mt-4 text-xs text-zinc-500">
+            This stays provider-shaped so we can add an external API later without rebuilding the judging workflow.
+          </p>
+        </section>
+
+        <section class="border border-zinc-200 bg-white p-4 shadow-sm" x-show="currentRun" x-cloak>
+          <h2 class="text-lg font-semibold text-zinc-950">Selected Run</h2>
+          <p class="mt-2 text-sm font-medium text-zinc-900" x-text="currentRun?.input?.question || currentRun?.name"></p>
+          <dl class="mt-4 space-y-3 text-sm">
+            <div>
+              <dt class="text-zinc-500">Answer model</dt>
+              <dd class="mt-1 font-medium text-zinc-900" x-text="currentRun?.model || '-'"></dd>
+            </div>
+            <div>
+              <dt class="text-zinc-500">Embedding model</dt>
+              <dd class="mt-1 font-medium text-zinc-900" x-text="currentRun?.input?.embed_model || '-'"></dd>
+            </div>
+            <div>
+              <dt class="text-zinc-500">Ingestion preset</dt>
+              <dd class="mt-1 font-medium text-zinc-900" x-text="currentRun?.input?.ingestion_preset_name || '-'"></dd>
+            </div>
+            <div>
+              <dt class="text-zinc-500">Answer style</dt>
+              <dd class="mt-1 font-medium text-zinc-900" x-text="currentRun?.input?.answer_style || '-'"></dd>
+            </div>
+          </dl>
+          <button
+            type="button"
+            class="mt-4 rounded-md border border-sky-300 bg-white px-3 py-2 text-sm font-medium text-sky-800 shadow-sm transition hover:bg-sky-50 disabled:cursor-not-allowed disabled:opacity-60"
+            :disabled="!currentRun || judgeRunningRunId === currentRun.id || !config.judge_enabled"
+            @click="evaluateRunWithJudge(currentRun)"
+          >
+            <span x-show="judgeRunningRunId !== currentRun?.id" x-text="config.judge_enabled ? 'Evaluate selected run' : 'Judge is disabled'"></span>
+            <span x-show="judgeRunningRunId === currentRun?.id">Judging selected run...</span>
+          </button>
+        </section>
+      </aside>
+
+      <div class="space-y-5">
+        <section class="border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900" x-show="!config.judge_enabled" x-cloak>
+          Judge is disabled in Pipeline Setup. That does not affect captured answers; it only pauses new judge evaluations until you re-enable it.
+        </section>
+
+        <section class="border border-zinc-200 bg-white p-4 shadow-sm" x-show="currentRun?.judge?.label" x-cloak>
+          <div class="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <h2 class="text-lg font-semibold text-zinc-950">Latest Judge Result</h2>
+              <p class="mt-1 text-sm text-zinc-600" x-text="currentRun?.judge?.evaluator || `${config.judge_provider}:${config.judge_model}`"></p>
+            </div>
+            <span class="rounded-full px-3 py-1 text-sm font-medium" :class="judgeLabelClass(currentRun)" x-text="judgeLabel(currentRun)"></span>
+          </div>
+          <div class="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            <div class="border border-zinc-200 bg-zinc-50 px-3 py-2">
+              <p class="uppercase text-zinc-500">Acceptable</p>
+              <p class="mt-1 font-semibold text-zinc-950" x-text="currentRun?.judge?.acceptable === true ? 'Yes' : currentRun?.judge?.acceptable === false ? 'No' : '-'"></p>
+            </div>
+            <div class="border border-zinc-200 bg-zinc-50 px-3 py-2">
+              <p class="uppercase text-zinc-500">Score Total</p>
+              <p class="mt-1 font-semibold text-zinc-950" x-text="currentRun?.judge?.score_total ?? '-'"></p>
+            </div>
+            <div class="border border-zinc-200 bg-zinc-50 px-3 py-2">
+              <p class="uppercase text-zinc-500">Retrieval Sufficient</p>
+              <p class="mt-1 font-semibold text-zinc-950" x-text="currentRun?.judge?.retrieval_sufficient === true ? 'Yes' : currentRun?.judge?.retrieval_sufficient === false ? 'No' : '-'"></p>
+            </div>
+            <div class="border border-zinc-200 bg-zinc-50 px-3 py-2">
+              <p class="uppercase text-zinc-500">Failure Mode</p>
+              <p class="mt-1 font-semibold text-zinc-950" x-text="currentRun?.judge?.main_failure_mode || '-'"></p>
+            </div>
+          </div>
+          <div class="mt-4 border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-900">
+            <p class="font-semibold">How to read the rubric</p>
+            <p class="mt-2">
+              The positive rubric scores are on a <span class="font-medium">0 to 5</span> scale, where
+              <span class="font-medium">5 is the maximum</span> and means the answer strongly meets that criterion using only the retrieved evidence.
+            </p>
+            <ul class="mt-2 list-disc space-y-1 pl-5 text-sm">
+              <li><span class="font-medium">Question alignment:</span> 0-5</li>
+              <li><span class="font-medium">Factual correctness:</span> 0-5</li>
+              <li><span class="font-medium">Groundedness:</span> 0-5</li>
+              <li><span class="font-medium">Citation quality:</span> 0-5</li>
+              <li><span class="font-medium">Completeness:</span> 0-5</li>
+              <li><span class="font-medium">Conciseness:</span> 0-5</li>
+              <li><span class="font-medium">Hallucination penalty:</span> 0 to -5, where 0 is best and more negative is worse</li>
+            </ul>
+            <p class="mt-2">
+              A run only passes when it stays well-grounded: groundedness, factual correctness, and question alignment all need to be high, and hallucination penalty needs to stay at 0.
+            </p>
+          </div>
+          <div class="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+            <template x-for="metric in [
+              ['Question alignment', currentRun?.judge?.rubric?.question_alignment],
+              ['Factual correctness', currentRun?.judge?.rubric?.factual_correctness],
+              ['Groundedness', currentRun?.judge?.rubric?.groundedness],
+              ['Citation quality', currentRun?.judge?.rubric?.citation_quality],
+              ['Completeness', currentRun?.judge?.rubric?.completeness],
+              ['Conciseness', currentRun?.judge?.rubric?.conciseness],
+              ['Hallucination penalty', currentRun?.judge?.rubric?.hallucination_penalty]
+            ]" :key="metric[0]">
+              <div class="border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm">
+                <p class="uppercase text-zinc-500" x-text="metric[0]"></p>
+                <p class="mt-1 font-semibold text-zinc-950" x-text="metric[1] ?? '-'"></p>
+              </div>
+            </template>
+          </div>
+          <div class="mt-4 space-y-3 text-sm">
+            <div class="border border-zinc-200 bg-zinc-50 px-3 py-3">
+              <p class="font-semibold text-zinc-900">Explanation</p>
+              <p class="mt-2 whitespace-pre-wrap text-zinc-700" x-text="currentRun?.judge?.explanation || '-'"></p>
+            </div>
+          </div>
+        </section>
+
+        <section class="border border-zinc-200 bg-white shadow-sm">
+          <div class="flex items-center justify-between border-b border-zinc-200 px-4 py-3">
+            <div>
+              <h2 class="text-lg font-semibold text-zinc-950">Judging Queue</h2>
+              <p class="mt-1 text-xs text-zinc-500">Evaluate captured answers with a separate judge model so model comparisons stay apples with apples.</p>
+            </div>
+            <span class="text-sm text-zinc-600" x-text="`${askRuns.length} captured`"></span>
+          </div>
+          <div class="overflow-x-auto">
+            <table class="min-w-full divide-y divide-zinc-200 text-sm">
+              <thead class="bg-zinc-50 text-left text-xs font-semibold uppercase text-zinc-600">
+                <tr>
+                  <th class="px-4 py-3">Question</th>
+                  <th class="px-4 py-3">Answer Model</th>
+                  <th class="px-4 py-3">Ingestion</th>
+                  <th class="px-4 py-3">Judge Result</th>
+                  <th class="px-4 py-3">Failure Mode</th>
+                  <th class="px-4 py-3 text-right">Open</th>
+                  <th class="px-4 py-3 text-right">Evaluate</th>
+                </tr>
+              </thead>
+              <tbody class="divide-y divide-zinc-100">
+                <template x-for="run in sortedAskRuns()" :key="`judge-${run.id}`">
+                  <tr :class="currentRun?.id === run.id ? 'bg-sky-50' : ''">
+                    <td class="max-w-[420px] truncate px-4 py-3 font-medium text-zinc-950" x-text="run.input?.question || run.name"></td>
+                    <td class="px-4 py-3 text-zinc-700" x-text="run.model || '-'"></td>
+                    <td class="px-4 py-3 text-zinc-700" x-text="run.input?.ingestion_preset_name || run.meta?.ingestion_preset_name || '-'"></td>
+                    <td class="px-4 py-3">
+                      <div class="flex flex-col gap-2">
+                        <span class="w-fit rounded-full px-2 py-1 text-xs font-medium" :class="judgeLabelClass(run)" x-text="judgeLabel(run)"></span>
+                        <span class="text-xs text-zinc-500" x-show="run.judge?.score_total !== null && run.judge?.score_total !== undefined" x-text="`score ${run.judge?.score_total}`"></span>
+                      </div>
+                    </td>
+                    <td class="max-w-[260px] px-4 py-3 text-zinc-600" x-text="run.judge?.main_failure_mode || '-'"></td>
+                    <td class="px-4 py-3 text-right">
+                      <button
+                        type="button"
+                        class="rounded-md border border-zinc-300 bg-white px-2 py-1 text-xs font-medium text-zinc-800 shadow-sm transition hover:border-emerald-500 hover:text-emerald-800"
+                        @click="loadCapturedRun(run.id); activeTab='judge';"
+                      >
+                        Open
+                      </button>
+                    </td>
+                    <td class="px-4 py-3 text-right">
+                      <button
+                        type="button"
+                        class="rounded-md border border-sky-300 bg-white px-2 py-1 text-xs font-medium text-sky-800 shadow-sm transition hover:bg-sky-50 disabled:cursor-not-allowed disabled:opacity-60"
+                        :disabled="judgeRunningRunId === run.id || !config.judge_enabled"
+                        @click="evaluateRunWithJudge(run)"
+                      >
+                        <span x-show="judgeRunningRunId !== run.id" x-text="config.judge_enabled ? 'Evaluate' : 'Judge off'"></span>
+                        <span x-show="judgeRunningRunId === run.id">Judging...</span>
+                      </button>
+                    </td>
+                  </tr>
+                </template>
+                <tr x-show="askRuns.length === 0">
+                  <td colspan="7" class="px-4 py-8 text-center text-zinc-500">No captured answers to judge yet.</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+      </div>
+    </div>
   </section>
 </section>
 {% endblock %}

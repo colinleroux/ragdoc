@@ -1,0 +1,34 @@
+{% set field_id_prefix = field_id_prefix|default("create") %}
+<div class="border border-zinc-200 bg-zinc-50 p-4">
+  <h3 class="text-sm font-semibold text-zinc-950">Chunking Settings</h3>
+  <div class="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+    <div>
+      <label class="text-xs font-medium uppercase text-zinc-500" for="{{ field_id_prefix }}-split-strategy">Split strategy</label>
+      <select id="{{ field_id_prefix }}-split-strategy" name="split_strategy" class="mt-1 w-full border border-zinc-300 bg-white px-3 py-2 text-sm">
+        {% for option in ["fixed", "paragraph", "sentence"] %}
+        <option value="{{ option }}" {% if defaults.split_strategy == option %}selected{% endif %}>{{ option|capitalize }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div>
+      <label class="text-xs font-medium uppercase text-zinc-500" for="{{ field_id_prefix }}-chunk-chars">Chunk chars</label>
+      <input id="{{ field_id_prefix }}-chunk-chars" name="chunk_chars" type="number" min="200" max="4000" value="{{ defaults.chunk_chars }}" class="mt-1 w-full border border-zinc-300 px-3 py-2 text-sm">
+    </div>
+    <div>
+      <label class="text-xs font-medium uppercase text-zinc-500" for="{{ field_id_prefix }}-overlap-chars">Overlap chars</label>
+      <input id="{{ field_id_prefix }}-overlap-chars" name="overlap_chars" type="number" min="0" max="1000" value="{{ defaults.overlap_chars }}" class="mt-1 w-full border border-zinc-300 px-3 py-2 text-sm">
+    </div>
+    <div>
+      <label class="text-xs font-medium uppercase text-zinc-500" for="{{ field_id_prefix }}-min-chunk-chars">Minimum chunk chars</label>
+      <input id="{{ field_id_prefix }}-min-chunk-chars" name="min_chunk_chars" type="number" min="50" max="2000" value="{{ defaults.min_chunk_chars }}" class="mt-1 w-full border border-zinc-300 px-3 py-2 text-sm">
+    </div>
+    <div>
+      <label class="text-xs font-medium uppercase text-zinc-500" for="{{ field_id_prefix }}-pdf-mode">PDF mode</label>
+      <select id="{{ field_id_prefix }}-pdf-mode" name="pdf_mode" class="mt-1 w-full border border-zinc-300 bg-white px-3 py-2 text-sm">
+        {% for option in ["page", "document"] %}
+        <option value="{{ option }}" {% if defaults.pdf_mode == option %}selected{% endif %}>{{ option|capitalize }}</option>
+        {% endfor %}
+      </select>
+    </div>
+  </div>
+</div>

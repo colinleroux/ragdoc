@@ -14,6 +14,12 @@ RAG_TOPICS = [
             "Can the same source be loaded again consistently?",
             "What metadata should survive every downstream step?",
         ],
+        "tradeoffs": [
+            "Page-based PDF ingestion keeps citations clearer, but document mode can preserve broader context.",
+            "Metadata that survives ingestion makes later evaluation and troubleshooting far easier.",
+        ],
+        "cta_label": "Open ingestion settings",
+        "cta_href": "/ingestion-settings/",
     },
     {
         "slug": "data-chunking",
@@ -30,6 +36,13 @@ RAG_TOPICS = [
             "How much overlap improves retrieval before it adds noise?",
             "Which document boundaries should never be split?",
         ],
+        "tradeoffs": [
+            "Smaller chunks often improve precision, but can starve the model of context.",
+            "Larger chunks can help answer synthesis, but may reduce retrieval sharpness and increase noise.",
+            "Paragraph and sentence-aware strategies preserve structure better than fixed windows when the corpus is well formatted.",
+        ],
+        "cta_label": "Experiment with chunking presets",
+        "cta_href": "/ingestion-settings/",
     },
     {
         "slug": "embedding",
@@ -46,6 +59,11 @@ RAG_TOPICS = [
             "Can embeddings be regenerated after a model change?",
             "How will failed batches be retried safely?",
         ],
+        "tradeoffs": [
+            "Embedding changes usually require a full re-ingest if you want fair retrieval comparisons.",
+        ],
+        "cta_label": "Open pipeline setup",
+        "cta_href": "/rag/pipeline",
     },
     {
         "slug": "storing",
@@ -62,6 +80,11 @@ RAG_TOPICS = [
             "How are prompt runs compared later?",
             "Which records must be immutable once evaluated?",
         ],
+        "tradeoffs": [
+            "Separate stores make each layer clearer, but only if the references between them are easy to inspect.",
+        ],
+        "cta_label": "Review captured answers",
+        "cta_href": "/rag/pipeline",
     },
 ]
 

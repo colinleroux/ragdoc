@@ -2,7 +2,8 @@ from typing import Any, Dict, List
 
 from ..errors import AppError
 from ..extensions import db
-from ..models import DataSource, DocumentChunk, EmbeddingRecord
+from ..ingestion_presets import get_active_ingestion_preset, ingestion_run_payload, latest_ingestion_run, preset_defaults
+from ..models import DataSource, DocumentChunk, EmbeddingRecord, IngestionRun
 from .chunking import chunk_text, content_hash, estimate_token_count, stable_id
 from .embeddings import ollama_embed
 from .loaders import read_docs, relative_source_path
@@ -39,7 +40,9 @@ def _replace_data_sources(sources: List[str], docs: List[Dict[str, Any]], cfg: D
 
 def ingest_docs(cfg: Dict[str, Any]) -> Dict[str, Any]:
     ensure_collection_ready(cfg)
-    docs = read_docs(cfg["DOCS_PATH"])
+    preset = get_active_ingestion_preset()
+    preset_cfg = preset_defaults(preset)
+    docs = read_docs(cfg["DOCS_PATH"], pdf_mode=preset_cfg["pdf_mode"])
     if not docs:
         raise AppError(f"No .txt or .md or .pdf files found under {cfg['DOCS_PATH']}.", 400)
 
@@ -57,7 +60,15 @@ def ingest_docs(cfg: Dict[str, Any]) -> Dict[str, Any]:
             doc_type = doc.get("kind", "text")
             source_record = source_records[source]
 
-            for index, chunk in enumerate(chunk_text(doc["text"])):
+            for index, chunk in enumerate(
+                chunk_text(
+                    doc["text"],
+                    chunk_chars=preset_cfg["chunk_chars"],
+                    overlap=preset_cfg["overlap_chars"],
+                    split_strategy=preset_cfg["split_strategy"],
+                    min_chunk_chars=preset_cfg["min_chunk_chars"],
+                )
+            ):
                 chunk_count += 1
                 chunk_hash = content_hash(chunk)
                 vector = ollama_embed(chunk, cfg)
@@ -73,6 +84,9 @@ def ingest_docs(cfg: Dict[str, Any]) -> Dict[str, Any]:
                         "page": page_num,
                         "doc_type": doc_type,
                         "content_hash": chunk_hash,
+                        "ingestion_preset_id": preset.id,
+                        "ingestion_preset_name": preset.name,
+                        "split_strategy": preset_cfg["split_strategy"],
                     },
                 )
                 db.session.add(chunk_record)
@@ -110,6 +124,18 @@ def ingest_docs(cfg: Dict[str, Any]) -> Dict[str, Any]:
         for index in range(0, len(points), 64):
             qdrant_upsert(points[index : index + 64], cfg)
 
+        run = IngestionRun(
+            preset=preset,
+            name=f"{preset.name} ingest",
+            docs_path=cfg["DOCS_PATH"],
+            collection=cfg["COLLECTION_NAME"],
+            config_json=preset_cfg,
+            files_count=len(sources),
+            doc_units_count=len(docs),
+            chunk_count=chunk_count,
+            embedding_count=len(points),
+        )
+        db.session.add(run)
         db.session.commit()
     except Exception:
         db.session.rollback()
@@ -122,6 +148,12 @@ def ingest_docs(cfg: Dict[str, Any]) -> Dict[str, Any]:
         "embeddings": len(points),
         "collection": cfg["COLLECTION_NAME"],
         "ledger": "sqlite",
+        "ingestion_preset": {
+            "id": preset.id,
+            "name": preset.name,
+            "config": preset_cfg,
+        },
+        "ingestion_run": ingestion_run_payload(run),
     }
 
 
@@ -147,7 +179,14 @@ def list_ingested_docs(cfg: Dict[str, Any]) -> Dict[str, Any]:
             }
         )
 
-    return {"collection": cfg["COLLECTION_NAME"], "docs": docs, "count": len(docs), "ledger": "sqlite"}
+    latest_run = latest_ingestion_run(cfg["COLLECTION_NAME"])
+    return {
+        "collection": cfg["COLLECTION_NAME"],
+        "docs": docs,
+        "count": len(docs),
+        "ledger": "sqlite",
+        "latest_ingestion_run": ingestion_run_payload(latest_run),
+    }
 
 
 def reset_ingestion(cfg: Dict[str, Any]) -> Dict[str, Any]:
