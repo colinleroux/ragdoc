@@ -7,7 +7,8 @@ from flask import Blueprint, Response, current_app, jsonify, request, stream_wit
 
 from ..extensions import db
 from ..errors import AppError
-from ..models import DataSource, DocumentChunk, EmbeddingRecord, Prompt, PromptRun, RunArtifact
+from ..models import DataSource, DocumentChunk, EmbeddingRecord, Prompt, PromptRun, RunArtifact, RunEvaluation
+from ..prompts.presets import prompt_query_defaults
 from ..rag.service import (
     answer_question,
     check_pipeline_settings,
@@ -72,10 +73,30 @@ def _pipeline_prompt():
     return prompt
 
 
+def _resolve_prompt_for_run(prompt_id):
+    if prompt_id in (None, "", 0, "0"):
+        return _pipeline_prompt()
+
+    try:
+        prompt_id = int(prompt_id)
+    except (TypeError, ValueError) as exc:
+        raise AppError("prompt_id must be an integer.", 400) from exc
+
+    prompt = Prompt.query.get(prompt_id)
+    if prompt is None:
+        raise AppError("Selected prompt was not found.", 404)
+    if prompt.name == "Pipeline Ask":
+        return _pipeline_prompt()
+    return prompt
+
+
 def _run_payload(run, include_artifacts=False):
+    evaluation = _run_evaluation_payload(run)
     payload = {
         "id": run.id,
         "name": run.name,
+        "prompt_id": run.prompt_id,
+        "prompt_name": run.prompt.name if run.prompt else None,
         "provider": run.provider,
         "model": run.model,
         "input": run.input_json or {},
@@ -84,6 +105,7 @@ def _run_payload(run, include_artifacts=False):
         "sources": (run.response_json or {}).get("sources", []),
         "latency_ms": run.latency_ms,
         "created_at": run.created_at.isoformat() if run.created_at else None,
+        "evaluation": evaluation,
     }
     if include_artifacts:
         payload["artifacts"] = [
@@ -99,8 +121,37 @@ def _run_payload(run, include_artifacts=False):
     return payload
 
 
-def _capture_ask_run(question, opts, result, latency_ms, cfg):
-    prompt = _pipeline_prompt()
+def _run_evaluation_payload(run):
+    evaluation = (
+        RunEvaluation.query.filter_by(prompt_run_id=run.id, evaluator="user", metric="satisfactory")
+        .order_by(RunEvaluation.updated_at.desc())
+        .first()
+    )
+    if evaluation is None:
+        return {"satisfactory": None, "notes": "", "updated_at": None}
+    return {
+        "satisfactory": None if evaluation.score is None else bool(int(evaluation.score)),
+        "notes": evaluation.notes or "",
+        "updated_at": evaluation.updated_at.isoformat() if evaluation.updated_at else None,
+    }
+
+
+def _prompt_payload(prompt):
+    return {
+        "id": prompt.id,
+        "name": prompt.name,
+        "purpose": prompt.purpose,
+        "template": prompt.template,
+        "query_defaults": prompt_query_defaults(prompt),
+        "version": prompt.version,
+        "run_count": len(prompt.runs),
+        "is_system": prompt.name == "Pipeline Ask",
+        "updated_at": prompt.updated_at.isoformat() if prompt.updated_at else None,
+    }
+
+
+def _capture_ask_run(question, opts, result, latency_ms, cfg, prompt_id=None):
+    prompt = _resolve_prompt_for_run(prompt_id)
     chunk_ids = [
         source.get("document_chunk_id")
         for source in result.get("sources", [])
@@ -120,6 +171,8 @@ def _capture_ask_run(question, opts, result, latency_ms, cfg):
         input_json={
             "question": question,
             **opts,
+            "prompt_id": prompt.id,
+            "prompt_name": prompt.name,
             "embed_model": cfg["EMBED_MODEL"],
             "collection": cfg["COLLECTION_NAME"],
         },
@@ -129,6 +182,8 @@ def _capture_ask_run(question, opts, result, latency_ms, cfg):
                 **(result.get("meta", {}) or {}),
                 "provider": "ollama",
                 "model": cfg["MODEL_NAME"],
+                "prompt_id": prompt.id,
+                "prompt_name": prompt.name,
                 "embed_model": cfg["EMBED_MODEL"],
                 "collection": cfg["COLLECTION_NAME"],
             },
@@ -186,6 +241,16 @@ def stats():
             "runs": PromptRun.query.count(),
         }
     )
+
+
+@api_bp.get("/prompts")
+def prompts():
+    include_system = (request.args.get("include_system") or "0").strip().lower() in {"1", "true", "yes"}
+    query = Prompt.query.order_by(Prompt.updated_at.desc())
+    if not include_system:
+        query = query.filter(Prompt.name != "Pipeline Ask")
+    rows = query.all()
+    return jsonify({"prompts": [_prompt_payload(prompt) for prompt in rows], "count": len(rows)})
 
 
 @api_bp.post("/setup-models")
@@ -366,7 +431,7 @@ def ask():
         cfg,
     )
     latency_ms = int((time.perf_counter() - started_at) * 1000)
-    run = _capture_ask_run(question, opts, result, latency_ms, cfg)
+    run = _capture_ask_run(question, opts, result, latency_ms, cfg, body.get("prompt_id"))
     result["run"] = _run_payload(run)
     return jsonify(result)
 
@@ -381,13 +446,7 @@ def ask_runs():
     if limit < 1 or limit > 100:
         raise AppError("limit must be between 1 and 100.", 400)
 
-    runs = (
-        PromptRun.query.join(Prompt)
-        .filter(Prompt.name == "Pipeline Ask")
-        .order_by(PromptRun.created_at.desc())
-        .limit(limit)
-        .all()
-    )
+    runs = PromptRun.query.order_by(PromptRun.created_at.desc()).limit(limit).all()
     return jsonify({"runs": [_run_payload(run) for run in runs], "count": len(runs)})
 
 
@@ -395,6 +454,43 @@ def ask_runs():
 def ask_run_detail(run_id):
     run = PromptRun.query.get_or_404(run_id)
     return jsonify(_run_payload(run, include_artifacts=True))
+
+
+@api_bp.put("/ask-runs/<int:run_id>/evaluation")
+def ask_run_evaluation_update(run_id):
+    run = PromptRun.query.get_or_404(run_id)
+    body = request.get_json(silent=True) or {}
+
+    satisfactory = body.get("satisfactory")
+    notes = (body.get("notes") or "").strip()
+    if satisfactory not in (None, True, False):
+        raise AppError("satisfactory must be true, false, or null.", 400)
+
+    evaluation = (
+        RunEvaluation.query.filter_by(prompt_run_id=run.id, evaluator="user", metric="satisfactory")
+        .order_by(RunEvaluation.updated_at.desc())
+        .first()
+    )
+
+    if satisfactory is None and not notes:
+        if evaluation is not None:
+            db.session.delete(evaluation)
+            db.session.commit()
+        return jsonify(_run_payload(run))
+
+    if evaluation is None:
+        evaluation = RunEvaluation(
+            run=run,
+            evaluator="user",
+            metric="satisfactory",
+        )
+        db.session.add(evaluation)
+
+    evaluation.score = None if satisfactory is None else float(1 if satisfactory else 0)
+    evaluation.notes = notes or None
+    evaluation.rubric_json = {"kind": "boolean_satisfactory"}
+    db.session.commit()
+    return jsonify(_run_payload(run))
 
 
 @api_bp.get("/ask-runs/<int:run_id>/download")
@@ -471,13 +567,7 @@ def ask_runs_export():
     if limit < 1 or limit > 500:
         raise AppError("limit must be between 1 and 500.", 400)
 
-    runs = (
-        PromptRun.query.join(Prompt)
-        .filter(Prompt.name == "Pipeline Ask")
-        .order_by(PromptRun.created_at.desc())
-        .limit(limit)
-        .all()
-    )
+    runs = PromptRun.query.order_by(PromptRun.created_at.desc()).limit(limit).all()
     payload = {
         "exported_at": datetime.utcnow().isoformat() + "Z",
         "count": len(runs),

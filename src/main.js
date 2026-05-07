@@ -37,6 +37,7 @@ Alpine.data("pipelineStatus", (initialConfig) => ({
     qdrant_url: initialConfig.qdrant_url || "",
   },
   modelOptions: { installed: [], recommended: { generation: [], embedding: [] } },
+  savedPrompts: [],
   pipelineCheck: null,
   ollamaRuntime: null,
   stats: {},
@@ -56,7 +57,10 @@ Alpine.data("pipelineStatus", (initialConfig) => ({
   sources: [],
   answerMeta: {},
   currentRun: null,
+  selectedPromptId: "",
   askRuns: [],
+  askRunsSortKey: "created_at",
+  askRunsSortDir: "desc",
   notice: "",
   noticeType: "success",
   activeTab: "setup",
@@ -75,6 +79,7 @@ Alpine.data("pipelineStatus", (initialConfig) => ({
   async init() {
     await this.refresh();
     await this.loadModelOptions();
+    await this.loadSavedPrompts();
   },
 
   setNotice(message, type = "success") {
@@ -84,6 +89,58 @@ Alpine.data("pipelineStatus", (initialConfig) => ({
 
   setTab(tab) {
     this.activeTab = tab;
+  },
+
+  sortAskRunsBy(key) {
+    if (this.askRunsSortKey === key) {
+      this.askRunsSortDir = this.askRunsSortDir === "asc" ? "desc" : "asc";
+      return;
+    }
+    this.askRunsSortKey = key;
+    this.askRunsSortDir = key === "question" || key === "style" || key === "model" || key === "rating" ? "asc" : "desc";
+  },
+
+  sortIndicator(key) {
+    if (this.askRunsSortKey !== key) {
+      return "";
+    }
+    return this.askRunsSortDir === "asc" ? " ^" : " v";
+  },
+
+  sortedAskRuns() {
+    const key = this.askRunsSortKey;
+    const dir = this.askRunsSortDir === "asc" ? 1 : -1;
+    const valueFor = (run) => {
+      switch (key) {
+        case "question":
+          return (run.input?.question || run.name || "").toLowerCase();
+        case "style":
+          return (run.input?.answer_style || "").toLowerCase();
+        case "model":
+          return (run.model || "").toLowerCase();
+        case "top_score":
+          return Number(run.meta?.top_semantic_score ?? -1);
+        case "latency":
+          return Number(run.latency_ms ?? -1);
+        case "rating":
+          return Number(run.evaluation?.satisfactory === null || run.evaluation?.satisfactory === undefined ? -1 : run.evaluation.satisfactory ? 1 : 0);
+        case "created_at":
+        default:
+          return Date.parse(run.created_at || 0) || 0;
+      }
+    };
+
+    return [...this.askRuns].sort((left, right) => {
+      const leftValue = valueFor(left);
+      const rightValue = valueFor(right);
+      if (leftValue < rightValue) {
+        return -1 * dir;
+      }
+      if (leftValue > rightValue) {
+        return 1 * dir;
+      }
+      return 0;
+    });
   },
 
   formatBytes(value) {
@@ -127,7 +184,7 @@ Alpine.data("pipelineStatus", (initialConfig) => ({
         qdrant_url: pipelineConfig.qdrant_url || "",
       };
       if (this.selectedSource) {
-        await this.loadChunks({ source: this.selectedSource }, false);
+        await this.loadChunks({ source: this.selectedSource }, false, false);
       }
       await this.loadOllamaRuntime();
       this.setNotice("Pipeline status refreshed.");
@@ -141,6 +198,15 @@ Alpine.data("pipelineStatus", (initialConfig) => ({
   async loadModelOptions() {
     try {
       this.modelOptions = await fetchJson("/api/pipeline-model-options");
+    } catch (error) {
+      this.setNotice(error.message, "error");
+    }
+  },
+
+  async loadSavedPrompts() {
+    try {
+      const result = await fetchJson("/api/prompts");
+      this.savedPrompts = result.prompts || [];
     } catch (error) {
       this.setNotice(error.message, "error");
     }
@@ -168,6 +234,88 @@ Alpine.data("pipelineStatus", (initialConfig) => ({
     }
     if (kind === "embedding") {
       this.draftConfig.embed_model = name;
+    }
+  },
+
+  applySelectedPrompt() {
+    const prompt = this.savedPrompts.find((item) => String(item.id) === String(this.selectedPromptId));
+    if (!prompt) {
+      this.setNotice("Select a saved prompt first.", "error");
+      return;
+    }
+
+    if (this.question.trim() && this.question.trim() !== prompt.template.trim()) {
+      const confirmed = window.confirm(`Replace the current question with the saved prompt "${prompt.name}"?`);
+      if (!confirmed) {
+        return;
+      }
+    }
+
+    this.question = prompt.template || "";
+    const defaults = prompt.query_defaults || {};
+    this.answerStyle = defaults.answer_style || "auto";
+    this.topK = defaults.top_k ?? 5;
+    this.maxSources = defaults.max_sources ?? 5;
+    this.strictness = defaults.strictness || "balanced";
+    this.minSemanticScore = defaults.min_semantic_score ?? 0.35;
+    this.reasoningMode = defaults.reasoning_mode || "grounded";
+    this.setNotice(`Loaded prompt "${prompt.name}" into Query.`);
+  },
+
+  clearSelectedPrompt() {
+    this.selectedPromptId = "";
+    this.setNotice("Using an ad hoc question instead of a saved prompt.");
+  },
+
+  evaluationLabel(run) {
+    if (!run?.evaluation || run.evaluation.satisfactory === null || run.evaluation.satisfactory === undefined) {
+      return "-";
+    }
+    return run.evaluation.satisfactory ? "Satisfactory" : "Not satisfactory";
+  },
+
+  applyUpdatedRun(updatedRun) {
+    this.askRuns = this.askRuns.map((run) => (run.id === updatedRun.id ? updatedRun : run));
+    if (this.currentRun?.id === updatedRun.id) {
+      this.currentRun = { ...this.currentRun, ...updatedRun };
+    }
+  },
+
+  async setRunEvaluation(run, satisfactory) {
+    try {
+      const result = await fetchJson(`/api/ask-runs/${run.id}/evaluation`, {
+        method: "PUT",
+        body: JSON.stringify({
+          satisfactory,
+          notes: run.evaluation?.notes || "",
+        }),
+      });
+      this.applyUpdatedRun(result);
+      this.setNotice(`Saved evaluation for run ${run.id}.`);
+    } catch (error) {
+      this.setNotice(error.message, "error");
+    }
+  },
+
+  async editRunNotes(run) {
+    const initialNotes = run.evaluation?.notes || "";
+    const notes = window.prompt("Add evaluation notes for this captured answer.", initialNotes);
+    if (notes === null) {
+      return;
+    }
+
+    try {
+      const result = await fetchJson(`/api/ask-runs/${run.id}/evaluation`, {
+        method: "PUT",
+        body: JSON.stringify({
+          satisfactory: run.evaluation?.satisfactory ?? null,
+          notes,
+        }),
+      });
+      this.applyUpdatedRun(result);
+      this.setNotice(`Saved notes for run ${run.id}.`);
+    } catch (error) {
+      this.setNotice(error.message, "error");
     }
   },
 
@@ -286,14 +434,16 @@ Alpine.data("pipelineStatus", (initialConfig) => ({
     };
   },
 
-  async loadChunks(doc, announce = true) {
+  async loadChunks(doc, announce = true, switchTab = true) {
     const source = doc?.source || "";
     if (!source) {
       return;
     }
 
     this.selectedSource = source;
-    this.activeTab = "inputs";
+    if (switchTab) {
+      this.activeTab = "inputs";
+    }
     this.showChunkPreview = true;
     this.chunksLoading = true;
     try {
@@ -412,6 +562,7 @@ Alpine.data("pipelineStatus", (initialConfig) => ({
         method: "POST",
         body: JSON.stringify({
           question: this.question,
+          prompt_id: this.selectedPromptId || null,
           top_k: this.topK,
           max_sources: this.maxSources,
           min_semantic_score: this.minSemanticScore,
@@ -426,6 +577,7 @@ Alpine.data("pipelineStatus", (initialConfig) => ({
       this.answerMeta = result.meta || {};
       this.currentRun = result.run || null;
       await this.refresh();
+      this.activeTab = "answers";
       this.setNotice(this.currentRun ? `Answer generated and captured as run ${this.currentRun.id}.` : "Answer generated.");
     } catch (error) {
       this.setNotice(error.message, "error");
@@ -436,9 +588,10 @@ Alpine.data("pipelineStatus", (initialConfig) => ({
 
   async loadCapturedRun(runId) {
     try {
-      this.activeTab = "query";
+      this.activeTab = "answers";
       const run = await fetchJson(`/api/ask-runs/${runId}`);
       this.currentRun = run;
+      this.selectedPromptId = run.prompt_id && run.prompt_name !== "Pipeline Ask" ? String(run.prompt_id) : "";
       this.question = run.input?.question || "";
       this.answerStyle = run.input?.answer_style || "auto";
       this.strictness = run.input?.strictness || "balanced";

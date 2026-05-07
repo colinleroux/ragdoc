@@ -34,7 +34,7 @@
 
   <section class="mt-5 border border-zinc-200 bg-white shadow-sm">
     <div class="border-b border-zinc-200 px-4 py-3">
-      <div class="grid grid-cols-3 gap-2">
+      <div class="grid grid-cols-2 gap-2 sm:grid-cols-4">
         <button
           type="button"
           class="px-3 py-2 text-sm font-medium transition"
@@ -58,6 +58,14 @@
           @click="setTab('query')"
         >
           Query
+        </button>
+        <button
+          type="button"
+          class="px-3 py-2 text-sm font-medium transition"
+          :class="activeTab === 'answers' ? 'bg-zinc-900 text-white' : 'border border-zinc-300 bg-white text-zinc-800 hover:border-zinc-400'"
+          @click="setTab('answers')"
+        >
+          Answers
         </button>
       </div>
     </div>
@@ -553,7 +561,7 @@
           </button>
         </div>
         <div class="mt-5 border border-amber-200 bg-amber-50 px-3 py-3 text-xs text-amber-900">
-          Add or replace files in the docs folder, then run ingest. Removing a file from the folder does not automatically remove its already-ingested vectors unless you reset or remove that source from Query.
+          Add or replace files in the docs folder, then run ingest. Removing a file from the folder does not automatically remove its already-ingested vectors unless you reset or remove that source here.
         </div>
       </aside>
     </div>
@@ -630,6 +638,51 @@
     </div>
 
   <section class="mt-5 border border-zinc-200 bg-white p-4 shadow-sm">
+    <div class="mb-5 grid gap-3 border-b border-zinc-200 pb-4 lg:grid-cols-[minmax(0,1fr)_auto]">
+      <div>
+        <div class="flex items-center justify-between gap-3">
+          <label class="text-sm font-medium text-zinc-700" for="saved-prompt">Ask settings</label>
+          <a
+            href="/prompts/"
+            class="rounded-md border border-zinc-300 bg-white px-3 py-2 text-xs font-medium text-zinc-800 shadow-sm transition hover:border-emerald-500 hover:text-emerald-800"
+          >
+            Manage Ask Settings
+          </a>
+        </div>
+        <select id="saved-prompt" class="mt-2 w-full border border-zinc-300 bg-white px-3 py-2 text-sm" x-model="selectedPromptId">
+          <option value="">Choose saved ask settings</option>
+          <template x-for="prompt in savedPrompts" :key="prompt.id">
+            <option :value="prompt.id" x-text="prompt.name"></option>
+          </template>
+        </select>
+        <p class="mt-2 text-xs text-zinc-500" x-show="savedPrompts.length">
+          Load saved ask settings and prompt text into Query, then tweak them if needed before asking.
+        </p>
+        <p class="mt-2 text-xs text-zinc-500" x-show="!savedPrompts.length">
+          No saved ask settings yet. Create one from Manage Ask Settings to reuse it here.
+        </p>
+      </div>
+      <div class="flex items-end">
+        <div class="flex flex-wrap gap-2">
+          <button
+            type="button"
+            class="rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm font-medium text-zinc-800 shadow-sm transition hover:border-emerald-500 hover:text-emerald-800 disabled:cursor-not-allowed disabled:opacity-60"
+            :disabled="!selectedPromptId"
+            @click="applySelectedPrompt()"
+          >
+            Load Settings
+          </button>
+          <button
+            type="button"
+            class="rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm font-medium text-zinc-800 shadow-sm transition hover:border-zinc-400 disabled:cursor-not-allowed disabled:opacity-60"
+            :disabled="!selectedPromptId"
+            @click="clearSelectedPrompt()"
+          >
+            Clear
+          </button>
+        </div>
+      </div>
+    </div>
     <div class="grid gap-4 lg:grid-cols-[minmax(0,1fr)_260px]">
       <div>
         <label for="pipeline-question" class="text-sm font-medium text-zinc-700">Question</label>
@@ -691,8 +744,11 @@
     <div class="mt-5 border-t border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-900" x-show="askRunning" x-cloak>
       Asking model. Retrieval and generation may take a little while.
     </div>
+  </section>
+  </section>
 
-    <div class="mt-5 border-t border-zinc-200 pt-4" x-show="answer || sources.length" x-cloak>
+  <section class="mt-5 space-y-5" x-show="activeTab === 'answers'" x-cloak>
+    <section class="border border-zinc-200 bg-white p-4 shadow-sm" x-show="answer || sources.length" x-cloak>
       <div class="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <h2 class="text-lg font-semibold text-zinc-950">Answer</h2>
@@ -706,7 +762,7 @@
         </div>
         <div class="border border-zinc-200 bg-zinc-50 px-3 py-2">
           <p class="uppercase text-zinc-500">Embedding</p>
-          <p class="mt-1 font-semibold text-zinc-950" x-text="config.embed_model"></p>
+          <p class="mt-1 font-semibold text-zinc-950" x-text="answerMeta.embed_model || currentRun?.input?.embed_model || config.embed_model"></p>
         </div>
         <div class="border border-zinc-200 bg-zinc-50 px-3 py-2" x-show="answerMeta.top_semantic_score !== undefined">
           <p class="uppercase text-zinc-500">Top score</p>
@@ -723,6 +779,28 @@
         <div class="border border-zinc-200 bg-zinc-50 px-3 py-2">
           <p class="uppercase text-zinc-500">Latency</p>
           <p class="mt-1 font-semibold text-zinc-950" x-text="currentRun?.latency_ms ? `${(currentRun.latency_ms / 1000).toFixed(1)}s` : '-'"></p>
+        </div>
+      </div>
+      <div class="mt-3 grid gap-2 text-xs sm:grid-cols-2 xl:grid-cols-4">
+        <div class="border border-zinc-200 bg-zinc-50 px-3 py-2">
+          <p class="uppercase text-zinc-500">Collection</p>
+          <p class="mt-1 font-semibold text-zinc-950" x-text="answerMeta.collection || currentRun?.input?.collection || config.collection"></p>
+        </div>
+        <div class="border border-zinc-200 bg-zinc-50 px-3 py-2">
+          <p class="uppercase text-zinc-500">Answer style</p>
+          <p class="mt-1 font-semibold capitalize text-zinc-950" x-text="currentRun?.input?.answer_style || answerStyle"></p>
+        </div>
+        <div class="border border-zinc-200 bg-zinc-50 px-3 py-2">
+          <p class="uppercase text-zinc-500">Reasoning</p>
+          <p class="mt-1 font-semibold capitalize text-zinc-950" x-text="currentRun?.input?.reasoning_mode || reasoningMode"></p>
+        </div>
+        <div class="border border-zinc-200 bg-zinc-50 px-3 py-2">
+          <p class="uppercase text-zinc-500">Top K / Sources</p>
+          <p class="mt-1 font-semibold text-zinc-950">
+            <span x-text="currentRun?.input?.top_k || topK"></span>
+            <span> / </span>
+            <span x-text="currentRun?.input?.max_sources || maxSources"></span>
+          </p>
         </div>
       </div>
       <p class="mt-3 whitespace-pre-wrap text-sm leading-6 text-zinc-800" x-text="answer"></p>
@@ -750,10 +828,9 @@
           </article>
         </template>
       </div>
-    </div>
-  </section>
+    </section>
 
-  <section class="mt-5 border border-zinc-200 bg-white shadow-sm">
+    <section class="border border-zinc-200 bg-white shadow-sm">
     <div class="flex items-center justify-between border-b border-zinc-200 px-4 py-3">
       <h2 class="text-lg font-semibold text-zinc-950">Captured Answers</h2>
       <div class="flex items-center gap-3">
@@ -770,10 +847,37 @@
       <table class="min-w-full divide-y divide-zinc-200 text-sm">
         <thead class="bg-zinc-50 text-left text-xs font-semibold uppercase text-zinc-600">
           <tr>
-            <th class="px-4 py-3">Question</th>
-            <th class="px-4 py-3">Style</th>
-            <th class="px-4 py-3 text-right">Top Score</th>
-            <th class="px-4 py-3 text-right">Latency</th>
+            <th class="px-4 py-3">
+              <button type="button" class="transition hover:text-zinc-900" @click="sortAskRunsBy('question')">
+                <span x-text="`Question${sortIndicator('question')}`"></span>
+              </button>
+            </th>
+            <th class="px-4 py-3">
+              <button type="button" class="transition hover:text-zinc-900" @click="sortAskRunsBy('style')">
+                <span x-text="`Style${sortIndicator('style')}`"></span>
+              </button>
+            </th>
+            <th class="px-4 py-3">
+              <button type="button" class="transition hover:text-zinc-900" @click="sortAskRunsBy('model')">
+                <span x-text="`Model${sortIndicator('model')}`"></span>
+              </button>
+            </th>
+            <th class="px-4 py-3 text-right">
+              <button type="button" class="transition hover:text-zinc-900" @click="sortAskRunsBy('top_score')">
+                <span x-text="`Top Score${sortIndicator('top_score')}`"></span>
+              </button>
+            </th>
+            <th class="px-4 py-3 text-right">
+              <button type="button" class="transition hover:text-zinc-900" @click="sortAskRunsBy('latency')">
+                <span x-text="`Latency${sortIndicator('latency')}`"></span>
+              </button>
+            </th>
+            <th class="px-4 py-3">
+              <button type="button" class="transition hover:text-zinc-900" @click="sortAskRunsBy('rating')">
+                <span x-text="`Rating${sortIndicator('rating')}`"></span>
+              </button>
+            </th>
+            <th class="px-4 py-3">Notes</th>
             <th class="px-4 py-3 text-right">Open</th>
             <th class="px-4 py-3 text-right">TXT</th>
             <th class="px-4 py-3 text-right">Download</th>
@@ -781,12 +885,52 @@
           </tr>
         </thead>
         <tbody class="divide-y divide-zinc-100">
-          <template x-for="run in askRuns" :key="run.id">
+          <template x-for="run in sortedAskRuns()" :key="run.id">
             <tr :class="currentRun?.id === run.id ? 'bg-emerald-50' : ''">
               <td class="max-w-[520px] truncate px-4 py-3 font-medium text-zinc-950" x-text="run.input?.question || run.name"></td>
               <td class="px-4 py-3 text-zinc-600" x-text="run.input?.answer_style || '-'"></td>
+              <td class="px-4 py-3 text-zinc-700" x-text="run.model || '-'"></td>
               <td class="px-4 py-3 text-right text-zinc-700" x-text="run.meta?.top_semantic_score ?? '-'"></td>
               <td class="px-4 py-3 text-right text-zinc-700" x-text="run.latency_ms ? `${(run.latency_ms / 1000).toFixed(1)}s` : '-'"></td>
+              <td class="px-4 py-3">
+                <div class="flex flex-wrap items-center gap-2">
+                  <span
+                    class="rounded-full px-2 py-1 text-xs font-medium"
+                    :class="run.evaluation?.satisfactory === true
+                      ? 'bg-emerald-100 text-emerald-800'
+                      : run.evaluation?.satisfactory === false
+                        ? 'bg-red-100 text-red-800'
+                        : 'bg-zinc-100 text-zinc-700'"
+                    x-text="evaluationLabel(run)"
+                  ></span>
+                  <button
+                    type="button"
+                    class="rounded-md border border-emerald-300 bg-white px-2 py-1 text-xs font-medium text-emerald-700 shadow-sm transition hover:bg-emerald-50"
+                    @click="setRunEvaluation(run, true)"
+                  >
+                    Yes
+                  </button>
+                  <button
+                    type="button"
+                    class="rounded-md border border-red-300 bg-white px-2 py-1 text-xs font-medium text-red-700 shadow-sm transition hover:bg-red-50"
+                    @click="setRunEvaluation(run, false)"
+                  >
+                    No
+                  </button>
+                </div>
+              </td>
+              <td class="max-w-[220px] px-4 py-3 text-zinc-600">
+                <div class="flex items-start justify-between gap-2">
+                  <p class="truncate text-sm" x-text="run.evaluation?.notes || '-'"></p>
+                  <button
+                    type="button"
+                    class="shrink-0 rounded-md border border-zinc-300 bg-white px-2 py-1 text-xs font-medium text-zinc-800 shadow-sm transition hover:border-emerald-500 hover:text-emerald-800"
+                    @click="editRunNotes(run)"
+                  >
+                    Edit
+                  </button>
+                </div>
+              </td>
               <td class="px-4 py-3 text-right">
                 <button
                   type="button"
@@ -824,12 +968,12 @@
             </tr>
           </template>
           <tr x-show="askRuns.length === 0">
-            <td colspan="8" class="px-4 py-8 text-center text-zinc-500">No captured answers yet.</td>
+            <td colspan="11" class="px-4 py-8 text-center text-zinc-500">No captured answers yet.</td>
           </tr>
         </tbody>
       </table>
     </div>
-  </section>
+    </section>
   </section>
 </section>
 {% endblock %}

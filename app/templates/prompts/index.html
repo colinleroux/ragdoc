@@ -1,44 +1,268 @@
 {% extends "layout.html" %}
-{% block title %}Prompt Experiments{% endblock %}
+{% block title %}Ask Settings{% endblock %}
 {% block content %}
 <section class="py-8">
-  <h1 class="text-3xl font-bold">Prompt Experiments</h1>
+  <a href="/rag/pipeline" class="text-sm font-medium text-emerald-700 hover:text-emerald-900">Back to pipeline query</a>
+  <h1 class="text-3xl font-bold">Ask Settings</h1>
   <p class="mt-3 max-w-3xl text-zinc-700">
-    Store prompt templates, consistent inputs, model responses, returned files, and evaluation notes so retrieval and generation quality can be compared over time.
+    Store reusable prompt templates, refine them over time, and pull them straight into the pipeline query flow when you want to compare outputs.
   </p>
 </section>
 
-<section class="grid gap-4 lg:grid-cols-3">
-  <div class="rounded-lg border border-zinc-200 bg-white p-5 shadow-sm lg:col-span-2">
-    <h2 class="text-lg font-semibold">Saved Prompts</h2>
-    {% if prompts %}
-    <div class="mt-4 divide-y divide-zinc-200">
-      {% for prompt in prompts %}
-      <div class="py-3">
-        <p class="font-medium">{{ prompt.name }}</p>
-        <p class="mt-1 text-sm text-zinc-600">{{ prompt.purpose or "No purpose recorded yet." }}</p>
+{% set notice = request.args.get("message") %}
+{% if notice %}
+<section class="mb-5">
+  <div class="{% if request.args.get('kind') == 'error' %}border-red-500 bg-red-50 text-red-800{% else %}border-emerald-500 bg-emerald-50 text-emerald-800{% endif %} border-l-4 px-4 py-3 text-sm">
+    {{ notice }}
+  </div>
+</section>
+{% endif %}
+
+<section class="grid gap-5 lg:grid-cols-[minmax(0,1fr)_320px]">
+  <div class="space-y-5">
+    <section class="border border-zinc-200 bg-white p-5 shadow-sm">
+      <div class="flex items-start justify-between gap-3">
+        <div>
+          <h2 class="text-lg font-semibold text-zinc-950">Create Prompt</h2>
+          <p class="mt-1 text-sm text-zinc-600">Write a reusable instruction block, question scaffold, or comparison prompt.</p>
+        </div>
       </div>
-      {% endfor %}
-    </div>
-    {% else %}
-    <p class="mt-4 text-sm text-zinc-600">No prompts stored yet. The database schema is ready for the first experiment.</p>
-    {% endif %}
+      <form method="post" action="{{ url_for('prompts.create') }}" class="mt-4 space-y-4">
+        <div>
+          <label class="text-xs font-medium uppercase text-zinc-500" for="prompt-name">Name</label>
+          <input id="prompt-name" name="name" type="text" class="mt-1 w-full border border-zinc-300 px-3 py-2 text-sm" placeholder="Example: Summarise for decision review" required>
+        </div>
+        <div>
+          <label class="text-xs font-medium uppercase text-zinc-500" for="prompt-purpose">Purpose</label>
+          <input id="prompt-purpose" name="purpose" type="text" class="mt-1 w-full border border-zinc-300 px-3 py-2 text-sm" placeholder="What this prompt is meant to do">
+        </div>
+        <div>
+          <label class="text-xs font-medium uppercase text-zinc-500" for="prompt-template">Template</label>
+          <textarea id="prompt-template" name="template" class="mt-1 min-h-40 w-full border border-zinc-300 px-3 py-2 text-sm" placeholder="Write the prompt text you want to reuse." required></textarea>
+        </div>
+        <div class="border border-zinc-200 bg-zinc-50 p-4">
+          <h3 class="text-sm font-semibold text-zinc-950">Saved Ask Settings</h3>
+          <p class="mt-1 text-xs text-zinc-600">These settings will travel with the prompt so model comparisons stay apples with apples.</p>
+          <div class="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            <div>
+              <label class="text-xs font-medium uppercase text-zinc-500" for="create-answer-style">Answer style</label>
+              <select id="create-answer-style" name="answer_style" class="mt-1 w-full border border-zinc-300 bg-white px-3 py-2 text-sm">
+                {% for option in ["auto", "concise", "detailed", "steps", "parameters"] %}
+                <option value="{{ option }}" {% if query_defaults.answer_style == option %}selected{% endif %}>{{ option|capitalize }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div>
+              <label class="text-xs font-medium uppercase text-zinc-500" for="create-top-k">Top K</label>
+              <input id="create-top-k" name="top_k" type="number" min="1" max="20" value="{{ query_defaults.top_k }}" class="mt-1 w-full border border-zinc-300 px-3 py-2 text-sm">
+            </div>
+            <div>
+              <label class="text-xs font-medium uppercase text-zinc-500" for="create-max-sources">Sources</label>
+              <input id="create-max-sources" name="max_sources" type="number" min="1" max="12" value="{{ query_defaults.max_sources }}" class="mt-1 w-full border border-zinc-300 px-3 py-2 text-sm">
+            </div>
+            <div>
+              <label class="text-xs font-medium uppercase text-zinc-500" for="create-strictness">Strictness</label>
+              <select id="create-strictness" name="strictness" class="mt-1 w-full border border-zinc-300 bg-white px-3 py-2 text-sm">
+                {% for option in ["balanced", "strict"] %}
+                <option value="{{ option }}" {% if query_defaults.strictness == option %}selected{% endif %}>{{ option|capitalize }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div>
+              <label class="text-xs font-medium uppercase text-zinc-500" for="create-min-score">Minimum score</label>
+              <input id="create-min-score" name="min_semantic_score" type="number" min="0" max="1" step="0.05" value="{{ query_defaults.min_semantic_score }}" class="mt-1 w-full border border-zinc-300 px-3 py-2 text-sm">
+            </div>
+            <div>
+              <label class="text-xs font-medium uppercase text-zinc-500" for="create-reasoning-mode">Reasoning</label>
+              <select id="create-reasoning-mode" name="reasoning_mode" class="mt-1 w-full border border-zinc-300 bg-white px-3 py-2 text-sm">
+                {% for option in ["grounded", "reasoned"] %}
+                <option value="{{ option }}" {% if query_defaults.reasoning_mode == option %}selected{% endif %}>{{ option|capitalize }}</option>
+                {% endfor %}
+              </select>
+            </div>
+          </div>
+        </div>
+        <div class="flex justify-end">
+          <button
+            type="submit"
+            class="rounded-md border border-emerald-700 bg-emerald-700 px-3 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-emerald-800"
+          >
+            Create Prompt
+          </button>
+        </div>
+      </form>
+    </section>
+
+    <section class="border border-zinc-200 bg-white shadow-sm">
+      <div class="flex items-center justify-between border-b border-zinc-200 px-4 py-3">
+        <h2 class="text-lg font-semibold text-zinc-950">Saved Prompts</h2>
+        <span class="text-sm text-zinc-600">{{ prompts|length }} total</span>
+      </div>
+
+      {% if prompts %}
+      <div class="divide-y divide-zinc-200">
+        {% for prompt in prompts %}
+        {% set is_system = prompt.name == "Pipeline Ask" %}
+        {% set preset = prompt_query_defaults(prompt) %}
+        <details class="group" {% if loop.first %}open{% endif %}>
+          <summary class="cursor-pointer list-none px-4 py-4">
+            <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+              <div>
+                <div class="flex flex-wrap items-center gap-2">
+                  <a href="{{ url_for('prompts.detail', prompt_id=prompt.id) }}" class="font-medium text-zinc-950 hover:text-emerald-800 hover:underline">{{ prompt.name }}</a>
+                  {% if is_system %}
+                  <span class="rounded-full bg-sky-100 px-2 py-1 text-xs font-medium text-sky-800">System</span>
+                  {% else %}
+                  <span class="rounded-full bg-zinc-100 px-2 py-1 text-xs font-medium text-zinc-700">v{{ prompt.version }}</span>
+                  {% endif %}
+                </div>
+                <p class="mt-1 text-sm text-zinc-600">{{ prompt.purpose or "No purpose recorded yet." }}</p>
+              </div>
+              <div class="text-xs text-zinc-500">
+                Updated {{ prompt.updated_at.strftime("%Y-%m-%d %H:%M") if prompt.updated_at else "-" }}
+              </div>
+            </div>
+          </summary>
+
+          <div class="border-t border-zinc-200 px-4 py-4">
+            {% if is_system %}
+            <div class="border border-sky-200 bg-sky-50 px-3 py-3 text-sm text-sky-900">
+              This prompt is managed by the pipeline answer capture flow, so it stays read-only here.
+            </div>
+            <div class="mt-4">
+              <p class="text-xs font-medium uppercase text-zinc-500">Template</p>
+              <pre class="mt-2 whitespace-pre-wrap border border-zinc-200 bg-zinc-50 p-3 text-sm text-zinc-800">{{ prompt.template }}</pre>
+            </div>
+            {% else %}
+            <form method="post" action="{{ url_for('prompts.update', prompt_id=prompt.id) }}" class="space-y-4">
+              <div>
+                <label class="text-xs font-medium uppercase text-zinc-500" for="prompt-name-{{ prompt.id }}">Name</label>
+                <input id="prompt-name-{{ prompt.id }}" name="name" type="text" value="{{ prompt.name }}" class="mt-1 w-full border border-zinc-300 px-3 py-2 text-sm" required>
+              </div>
+              <div>
+                <label class="text-xs font-medium uppercase text-zinc-500" for="prompt-purpose-{{ prompt.id }}">Purpose</label>
+                <input id="prompt-purpose-{{ prompt.id }}" name="purpose" type="text" value="{{ prompt.purpose or '' }}" class="mt-1 w-full border border-zinc-300 px-3 py-2 text-sm">
+              </div>
+              <div>
+                <label class="text-xs font-medium uppercase text-zinc-500" for="prompt-template-{{ prompt.id }}">Template</label>
+                <textarea id="prompt-template-{{ prompt.id }}" name="template" class="mt-1 min-h-40 w-full border border-zinc-300 px-3 py-2 text-sm" required>{{ prompt.template }}</textarea>
+              </div>
+              <div class="border border-zinc-200 bg-zinc-50 p-4">
+                <h3 class="text-sm font-semibold text-zinc-950">Saved Ask Settings</h3>
+                <div class="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                  <div>
+                    <label class="text-xs font-medium uppercase text-zinc-500" for="prompt-answer-style-{{ prompt.id }}">Answer style</label>
+                    <select id="prompt-answer-style-{{ prompt.id }}" name="answer_style" class="mt-1 w-full border border-zinc-300 bg-white px-3 py-2 text-sm">
+                      {% for option in ["auto", "concise", "detailed", "steps", "parameters"] %}
+                      <option value="{{ option }}" {% if preset.answer_style == option %}selected{% endif %}>{{ option|capitalize }}</option>
+                      {% endfor %}
+                    </select>
+                  </div>
+                  <div>
+                    <label class="text-xs font-medium uppercase text-zinc-500" for="prompt-top-k-{{ prompt.id }}">Top K</label>
+                    <input id="prompt-top-k-{{ prompt.id }}" name="top_k" type="number" min="1" max="20" value="{{ preset.top_k }}" class="mt-1 w-full border border-zinc-300 px-3 py-2 text-sm">
+                  </div>
+                  <div>
+                    <label class="text-xs font-medium uppercase text-zinc-500" for="prompt-max-sources-{{ prompt.id }}">Sources</label>
+                    <input id="prompt-max-sources-{{ prompt.id }}" name="max_sources" type="number" min="1" max="12" value="{{ preset.max_sources }}" class="mt-1 w-full border border-zinc-300 px-3 py-2 text-sm">
+                  </div>
+                  <div>
+                    <label class="text-xs font-medium uppercase text-zinc-500" for="prompt-strictness-{{ prompt.id }}">Strictness</label>
+                    <select id="prompt-strictness-{{ prompt.id }}" name="strictness" class="mt-1 w-full border border-zinc-300 bg-white px-3 py-2 text-sm">
+                      {% for option in ["balanced", "strict"] %}
+                      <option value="{{ option }}" {% if preset.strictness == option %}selected{% endif %}>{{ option|capitalize }}</option>
+                      {% endfor %}
+                    </select>
+                  </div>
+                  <div>
+                    <label class="text-xs font-medium uppercase text-zinc-500" for="prompt-min-score-{{ prompt.id }}">Minimum score</label>
+                    <input id="prompt-min-score-{{ prompt.id }}" name="min_semantic_score" type="number" min="0" max="1" step="0.05" value="{{ preset.min_semantic_score }}" class="mt-1 w-full border border-zinc-300 px-3 py-2 text-sm">
+                  </div>
+                  <div>
+                    <label class="text-xs font-medium uppercase text-zinc-500" for="prompt-reasoning-mode-{{ prompt.id }}">Reasoning</label>
+                    <select id="prompt-reasoning-mode-{{ prompt.id }}" name="reasoning_mode" class="mt-1 w-full border border-zinc-300 bg-white px-3 py-2 text-sm">
+                      {% for option in ["grounded", "reasoned"] %}
+                      <option value="{{ option }}" {% if preset.reasoning_mode == option %}selected{% endif %}>{{ option|capitalize }}</option>
+                      {% endfor %}
+                    </select>
+                  </div>
+                </div>
+              </div>
+              <div class="flex flex-wrap justify-between gap-3">
+                <div class="flex flex-wrap gap-3">
+                  <a
+                    href="{{ url_for('prompts.detail', prompt_id=prompt.id) }}"
+                    class="rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm font-medium text-zinc-800 shadow-sm transition hover:border-emerald-500 hover:text-emerald-800"
+                  >
+                    Compare Runs
+                  </a>
+                  <button
+                    type="submit"
+                    class="rounded-md border border-emerald-700 bg-emerald-700 px-3 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-emerald-800"
+                  >
+                    Save Changes
+                  </button>
+                </div>
+              </div>
+            </form>
+
+            <form method="post" action="{{ url_for('prompts.delete', prompt_id=prompt.id) }}" class="mt-3" onsubmit="return window.confirm('Delete prompt &quot;{{ prompt.name|e }}&quot;?');">
+              <button
+                type="submit"
+                class="rounded-md border border-red-300 bg-white px-3 py-2 text-sm font-medium text-red-700 shadow-sm transition hover:bg-red-50"
+              >
+                Delete Prompt
+              </button>
+            </form>
+            {% endif %}
+          </div>
+        </details>
+        {% endfor %}
+      </div>
+      {% else %}
+      <p class="px-4 py-8 text-sm text-zinc-600">No prompts stored yet.</p>
+      {% endif %}
+    </section>
   </div>
 
-  <div class="rounded-lg border border-zinc-200 bg-white p-5 shadow-sm">
-    <h2 class="text-lg font-semibold">Recent Runs</h2>
-    {% if recent_runs %}
-    <div class="mt-4 space-y-3">
-      {% for run in recent_runs %}
-      <div>
-        <p class="text-sm font-medium">{{ run.name or "Untitled run" }}</p>
-        <p class="text-xs text-zinc-500">{{ run.provider or "Provider TBD" }} {{ run.model or "" }}</p>
+  <aside class="space-y-5">
+    <section class="border border-zinc-200 bg-white p-5 shadow-sm">
+      <h2 class="text-lg font-semibold text-zinc-950">Using Prompts In Query</h2>
+      <p class="mt-2 text-sm text-zinc-700">
+        Saved prompts are now available on the pipeline Query tab. Pick one, load it into the question box, then tweak it before asking.
+      </p>
+    </section>
+
+    <section class="border border-zinc-200 bg-white p-5 shadow-sm">
+      <h2 class="text-lg font-semibold text-zinc-950">Recent Runs</h2>
+      {% if recent_runs %}
+      <div class="mt-4 space-y-3">
+        {% for run in recent_runs %}
+        <div class="border border-zinc-200 bg-zinc-50 p-3">
+          <p class="text-sm font-medium text-zinc-950">{{ run.name or "Untitled run" }}</p>
+          <p class="mt-1 text-xs text-zinc-500">
+            {% if run.prompt %}
+            {% if run.prompt.name == "Pipeline Ask" %}
+            <span class="font-medium text-zinc-700">Ad hoc pipeline ask</span>
+            {% else %}
+            <a href="{{ url_for('prompts.detail', prompt_id=run.prompt.id) }}" class="font-medium text-zinc-700 hover:text-emerald-800 hover:underline">{{ run.prompt.name }}</a>
+            {% endif %}
+            {% else %}
+            Prompt
+            {% endif %}
+            - {{ run.provider or "Provider TBD" }} {{ run.model or "" }}
+          </p>
+          <p class="mt-2 text-xs text-zinc-500">
+            {% set meta = run.response_json.get('meta', {}) if run.response_json else {} %}
+            Score {{ meta.get('top_semantic_score', '-') }} - Latency {{ '%.1fs'|format(run.latency_ms / 1000) if run.latency_ms else '-' }}
+          </p>
+        </div>
+        {% endfor %}
       </div>
-      {% endfor %}
-    </div>
-    {% else %}
-    <p class="mt-4 text-sm text-zinc-600">Runs will appear here after prompt outputs are captured.</p>
-    {% endif %}
-  </div>
+      {% else %}
+      <p class="mt-4 text-sm text-zinc-600">Runs will appear here after prompt outputs are captured.</p>
+      {% endif %}
+    </section>
+  </aside>
 </section>
 {% endblock %}

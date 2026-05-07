@@ -1,0 +1,235 @@
+{% extends "layout.html" %}
+{% block title %}Ask Settings Detail{% endblock %}
+{% block content %}
+<section class="py-8">
+  <div class="flex flex-wrap items-center gap-4 text-sm">
+    <a href="/rag/pipeline" class="font-medium text-emerald-700 hover:text-emerald-900">Back to pipeline query</a>
+    <a href="{{ url_for('prompts.index') }}" class="font-medium text-zinc-700 hover:text-zinc-950">All ask settings</a>
+  </div>
+  <h1 class="mt-3 text-3xl font-bold text-zinc-950">{{ prompt.name }}</h1>
+  <p class="mt-3 max-w-3xl text-zinc-700">
+    Compare runs for this prompt across models, using the same underlying prompt text as the constant.
+  </p>
+</section>
+
+{% set notice = request.args.get("message") %}
+{% if notice %}
+<section class="mb-5">
+  <div class="{% if request.args.get('kind') == 'error' %}border-red-500 bg-red-50 text-red-800{% else %}border-emerald-500 bg-emerald-50 text-emerald-800{% endif %} border-l-4 px-4 py-3 text-sm">
+    {{ notice }}
+  </div>
+</section>
+{% endif %}
+
+{% set is_system = prompt.name == "Pipeline Ask" %}
+{% set preset = prompt_query_defaults(prompt) %}
+
+<section class="space-y-5">
+  <div class="space-y-5">
+    <section class="border border-zinc-200 bg-white p-5 shadow-sm">
+      <div class="flex items-start justify-between gap-3">
+        <div>
+          <h2 class="text-lg font-semibold text-zinc-950">Prompt</h2>
+          <p class="mt-1 text-sm text-zinc-600">{{ prompt.purpose or "No purpose recorded yet." }}</p>
+        </div>
+        <span class="rounded-full bg-zinc-100 px-2 py-1 text-xs font-medium text-zinc-700">v{{ prompt.version }}</span>
+      </div>
+
+      {% if is_system %}
+      <div class="mt-4 border border-sky-200 bg-sky-50 px-3 py-3 text-sm text-sky-900">
+        This prompt is managed by the pipeline capture flow, so it stays read-only here.
+      </div>
+      <pre class="mt-4 whitespace-pre-wrap border border-zinc-200 bg-zinc-50 p-3 text-sm text-zinc-800">{{ prompt.template }}</pre>
+      {% else %}
+      <form method="post" action="{{ url_for('prompts.update', prompt_id=prompt.id) }}" class="mt-4 space-y-4">
+        <input type="hidden" name="next" value="{{ url_for('prompts.detail', prompt_id=prompt.id) }}">
+        <div>
+          <label class="text-xs font-medium uppercase text-zinc-500" for="prompt-name">Name</label>
+          <input id="prompt-name" name="name" type="text" value="{{ prompt.name }}" class="mt-1 w-full border border-zinc-300 px-3 py-2 text-sm" required>
+        </div>
+        <div>
+          <label class="text-xs font-medium uppercase text-zinc-500" for="prompt-purpose">Purpose</label>
+          <input id="prompt-purpose" name="purpose" type="text" value="{{ prompt.purpose or '' }}" class="mt-1 w-full border border-zinc-300 px-3 py-2 text-sm">
+        </div>
+        <div>
+          <label class="text-xs font-medium uppercase text-zinc-500" for="prompt-template">Template</label>
+          <textarea id="prompt-template" name="template" class="mt-1 min-h-48 w-full border border-zinc-300 px-3 py-2 text-sm" required>{{ prompt.template }}</textarea>
+        </div>
+        <div class="border border-zinc-200 bg-zinc-50 p-4">
+          <h3 class="text-sm font-semibold text-zinc-950">Saved Ask Settings</h3>
+          <p class="mt-1 text-xs text-zinc-600">These settings are loaded into the Query tab alongside the prompt text.</p>
+          <div class="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            <div>
+              <label class="text-xs font-medium uppercase text-zinc-500" for="prompt-answer-style">Answer style</label>
+              <select id="prompt-answer-style" name="answer_style" class="mt-1 w-full border border-zinc-300 bg-white px-3 py-2 text-sm">
+                {% for option in ["auto", "concise", "detailed", "steps", "parameters"] %}
+                <option value="{{ option }}" {% if preset.answer_style == option %}selected{% endif %}>{{ option|capitalize }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div>
+              <label class="text-xs font-medium uppercase text-zinc-500" for="prompt-top-k">Top K</label>
+              <input id="prompt-top-k" name="top_k" type="number" min="1" max="20" value="{{ preset.top_k }}" class="mt-1 w-full border border-zinc-300 px-3 py-2 text-sm">
+            </div>
+            <div>
+              <label class="text-xs font-medium uppercase text-zinc-500" for="prompt-max-sources">Sources</label>
+              <input id="prompt-max-sources" name="max_sources" type="number" min="1" max="12" value="{{ preset.max_sources }}" class="mt-1 w-full border border-zinc-300 px-3 py-2 text-sm">
+            </div>
+            <div>
+              <label class="text-xs font-medium uppercase text-zinc-500" for="prompt-strictness">Strictness</label>
+              <select id="prompt-strictness" name="strictness" class="mt-1 w-full border border-zinc-300 bg-white px-3 py-2 text-sm">
+                {% for option in ["balanced", "strict"] %}
+                <option value="{{ option }}" {% if preset.strictness == option %}selected{% endif %}>{{ option|capitalize }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div>
+              <label class="text-xs font-medium uppercase text-zinc-500" for="prompt-min-score">Minimum score</label>
+              <input id="prompt-min-score" name="min_semantic_score" type="number" min="0" max="1" step="0.05" value="{{ preset.min_semantic_score }}" class="mt-1 w-full border border-zinc-300 px-3 py-2 text-sm">
+            </div>
+            <div>
+              <label class="text-xs font-medium uppercase text-zinc-500" for="prompt-reasoning-mode">Reasoning</label>
+              <select id="prompt-reasoning-mode" name="reasoning_mode" class="mt-1 w-full border border-zinc-300 bg-white px-3 py-2 text-sm">
+                {% for option in ["grounded", "reasoned"] %}
+                <option value="{{ option }}" {% if preset.reasoning_mode == option %}selected{% endif %}>{{ option|capitalize }}</option>
+                {% endfor %}
+              </select>
+            </div>
+          </div>
+        </div>
+        <div class="flex flex-wrap justify-between gap-3">
+          <button
+            type="submit"
+            class="rounded-md border border-emerald-700 bg-emerald-700 px-3 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-emerald-800"
+          >
+            Save Changes
+          </button>
+        </div>
+      </form>
+      <form method="post" action="{{ url_for('prompts.delete', prompt_id=prompt.id) }}" class="mt-3" onsubmit="return window.confirm('Delete prompt &quot;{{ prompt.name|e }}&quot;?');">
+        <input type="hidden" name="next" value="{{ url_for('prompts.index') }}">
+        <button
+          type="submit"
+          class="rounded-md border border-red-300 bg-white px-3 py-2 text-sm font-medium text-red-700 shadow-sm transition hover:bg-red-50"
+        >
+          Delete Prompt
+        </button>
+      </form>
+      {% endif %}
+    </section>
+
+    <section class="border border-zinc-200 bg-white shadow-sm">
+      <div class="flex items-center justify-between border-b border-zinc-200 px-4 py-3">
+        <h2 class="text-lg font-semibold text-zinc-950">Model Comparison</h2>
+        <span class="text-sm text-zinc-600">{{ comparison_rows|length }} models</span>
+      </div>
+      {% if comparison_rows %}
+      <div class="overflow-x-auto">
+        <table class="min-w-full divide-y divide-zinc-200 text-sm">
+          <thead class="bg-zinc-50 text-left text-xs font-semibold uppercase text-zinc-600">
+            <tr>
+              <th class="px-4 py-3">Model</th>
+              <th class="px-4 py-3 text-right">Runs</th>
+              <th class="px-4 py-3">Satisfactory</th>
+              <th class="px-4 py-3">Avg Score</th>
+              <th class="px-4 py-3">Avg Latency</th>
+              <th class="px-4 py-3">Latest</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-zinc-100">
+            {% for row in comparison_rows %}
+            {% set score_width = (row.avg_score * 100)|round(1) if row.avg_score is not none else 0 %}
+            {% set latency_width = ((row.avg_latency_ms / max_latency_ms) * 100)|round(1) if row.avg_latency_ms and max_latency_ms else 0 %}
+            <tr>
+              <td class="px-4 py-3 font-medium text-zinc-950">{{ row.model }}</td>
+              <td class="px-4 py-3 text-right text-zinc-700">{{ row.run_count }}</td>
+              <td class="px-4 py-3 text-zinc-700">
+                {% if row.satisfactory_rate is not none %}
+                {{ row.satisfied_count }}/{{ row.rated_count }} ({{ "%.0f%%"|format(row.satisfactory_rate * 100) }})
+                {% else %}
+                -
+                {% endif %}
+              </td>
+              <td class="px-4 py-3">
+                <div class="flex items-center gap-3">
+                  <div class="h-2 w-28 overflow-hidden rounded-full bg-zinc-100">
+                    <div class="h-full rounded-full bg-emerald-600" style="width: {{ score_width }}%"></div>
+                  </div>
+                  <span class="text-zinc-700">{{ "%.3f"|format(row.avg_score) if row.avg_score is not none else "-" }}</span>
+                </div>
+              </td>
+              <td class="px-4 py-3">
+                <div class="flex items-center gap-3">
+                  <div class="h-2 w-28 overflow-hidden rounded-full bg-zinc-100">
+                    <div class="h-full rounded-full bg-sky-600" style="width: {{ latency_width }}%"></div>
+                  </div>
+                  <span class="text-zinc-700">{{ "%.1fs"|format(row.avg_latency_ms / 1000) if row.avg_latency_ms is not none else "-" }}</span>
+                </div>
+              </td>
+              <td class="px-4 py-3 text-zinc-700">{{ row.latest_run_at.strftime("%Y-%m-%d %H:%M") if row.latest_run_at else "-" }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      <div class="border-t border-zinc-200 bg-zinc-50 px-4 py-3 text-xs text-zinc-600">
+        Preset used for this prompt: {{ preset.answer_style }}, top K {{ preset.top_k }}, sources {{ preset.max_sources }}, {{ preset.strictness }}, min score {{ preset.min_semantic_score }}, {{ preset.reasoning_mode }}.
+      </div>
+      {% else %}
+      <p class="px-4 py-8 text-sm text-zinc-600">No runs captured for this prompt yet.</p>
+      {% endif %}
+    </section>
+
+    <section class="border border-zinc-200 bg-white shadow-sm">
+      <div class="flex items-center justify-between border-b border-zinc-200 px-4 py-3">
+        <h2 class="text-lg font-semibold text-zinc-950">Run History</h2>
+        <span class="text-sm text-zinc-600">{{ runs|length }} recent</span>
+      </div>
+      {% if runs %}
+      <div class="overflow-x-auto">
+        <table class="min-w-full divide-y divide-zinc-200 text-sm">
+          <thead class="bg-zinc-50 text-left text-xs font-semibold uppercase text-zinc-600">
+            <tr>
+              <th class="px-4 py-3">Run</th>
+              <th class="px-4 py-3">Model</th>
+              <th class="px-4 py-3 text-right">Top Score</th>
+              <th class="px-4 py-3 text-right">Latency</th>
+              <th class="px-4 py-3">Rating</th>
+              <th class="px-4 py-3">Created</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-zinc-100">
+            {% for run in runs %}
+            {% set score = run_top_score(run) %}
+            <tr>
+              <td class="max-w-[520px] px-4 py-3">
+                <p class="truncate font-medium text-zinc-950">{{ run_question(run) }}</p>
+                <p class="mt-1 text-xs text-zinc-500">{{ run.provider or "Provider TBD" }}</p>
+              </td>
+              <td class="px-4 py-3 text-zinc-700">{{ run.model or "-" }}</td>
+              <td class="px-4 py-3 text-right text-zinc-700">{{ "%.3f"|format(score) if score is not none else "-" }}</td>
+              <td class="px-4 py-3 text-right text-zinc-700">{{ "%.1fs"|format(run.latency_ms / 1000) if run.latency_ms else "-" }}</td>
+              <td class="px-4 py-3 text-zinc-700">
+                {% set satisfactory = run_satisfactory(run) %}
+                {% if satisfactory is sameas true %}
+                Satisfactory
+                {% elif satisfactory is sameas false %}
+                Not satisfactory
+                {% else %}
+                -
+                {% endif %}
+              </td>
+              <td class="px-4 py-3 text-zinc-700">{{ run.created_at.strftime("%Y-%m-%d %H:%M") if run.created_at else "-" }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% else %}
+      <p class="px-4 py-8 text-sm text-zinc-600">No runs captured for this prompt yet.</p>
+      {% endif %}
+    </section>
+  </div>
+
+</section>
+{% endblock %}
