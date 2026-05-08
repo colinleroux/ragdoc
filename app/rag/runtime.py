@@ -75,6 +75,69 @@ MODEL_PRESETS = {
             "source_url": "https://ollama.com/library/qwen2.5",
             "recommended": False,
         },
+        {
+            "name": "qwen3:8b",
+            "size_label": "5.2GB",
+            "size_bytes": 5_200_000_000,
+            "family": "Qwen 3",
+            "notes": "Strong current all-rounder under 8GB with a roomy context window and good reasoning behavior.",
+            "source_url": "https://ollama.com/library/qwen3",
+            "recommended": True,
+        },
+        {
+            "name": "deepseek-r1:8b",
+            "size_label": "5.2GB",
+            "size_bytes": 5_200_000_000,
+            "family": "DeepSeek R1",
+            "notes": "Reasoning-focused option worth testing when you want a more deliberate answer style under 8GB.",
+            "source_url": "https://ollama.com/library/deepseek-r1",
+            "recommended": True,
+        },
+        {
+            "name": "mistral-nemo:12b",
+            "size_label": "7.1GB",
+            "size_bytes": 7_100_000_000,
+            "family": "Mistral NeMo",
+            "notes": "A heavier but still sub-8GB option with long-context support and strong general-purpose performance.",
+            "source_url": "https://ollama.com/library/mistral-nemo",
+            "recommended": True,
+        },
+        {
+            "name": "granite3.3:8b",
+            "size_label": "4.9GB",
+            "size_bytes": 4_900_000_000,
+            "family": "Granite 3.3",
+            "notes": "Interesting IBM model for instruction following, long-context work, and structured reasoning.",
+            "source_url": "https://ollama.com/library/granite3.3",
+            "recommended": False,
+        },
+        {
+            "name": "phi4-mini:3.8b",
+            "size_label": "2.5GB",
+            "size_bytes": 2_500_000_000,
+            "family": "Phi-4 Mini",
+            "notes": "Lightweight Microsoft option with long context and a reasoning-oriented profile.",
+            "source_url": "https://ollama.com/library/phi4-mini",
+            "recommended": False,
+        },
+        {
+            "name": "command-r7b:7b",
+            "size_label": "5.1GB",
+            "size_bytes": 5_100_000_000,
+            "family": "Command R",
+            "notes": "Cohere's smaller R-series model, explicitly aimed at RAG, summarization, and question answering.",
+            "source_url": "https://ollama.com/library/command-r7b",
+            "recommended": False,
+        },
+        {
+            "name": "qwen3:235b",
+            "size_label": "142GB",
+            "size_bytes": 142_000_000_000,
+            "family": "Qwen 3",
+            "notes": "Flagship Qwen3-235B-A22B MoE model. Excellent if your server can genuinely host it, but far beyond normal workstation territory.",
+            "source_url": "https://ollama.com/library/qwen3:235b",
+            "recommended": False,
+        },
     ],
     "embedding": [
         {
@@ -100,32 +163,29 @@ MODEL_PRESETS = {
 
 
 def _seed_model_catalog_defaults() -> None:
-    if ModelCatalog.query.count() > 0:
-        return
-
-    rows = []
-    for kind, items in MODEL_PRESETS.items():
-        for index, item in enumerate(items):
-            rows.append(
-                ModelCatalog(
-                    name=item["name"],
-                    kind=kind,
-                    family=item.get("family"),
-                    size_label=item.get("size_label"),
-                    size_bytes=item.get("size_bytes"),
-                    notes=item.get("notes"),
-                    source_url=item.get("source_url"),
-                    recommended=bool(item.get("recommended")),
-                    active=True,
-                    sort_order=index,
-                )
-            )
-
-    if not rows:
-        return
-
     try:
-        db.session.add_all(rows)
+        changed = False
+        for kind, items in MODEL_PRESETS.items():
+            for index, item in enumerate(items):
+                row = ModelCatalog.query.filter_by(name=item["name"]).first()
+                if row is None:
+                    row = ModelCatalog(name=item["name"])
+                    db.session.add(row)
+                    changed = True
+
+                row.kind = kind
+                row.family = item.get("family")
+                row.size_label = item.get("size_label")
+                row.size_bytes = item.get("size_bytes")
+                row.notes = item.get("notes")
+                row.source_url = item.get("source_url")
+                row.recommended = bool(item.get("recommended"))
+                row.active = True
+                row.sort_order = index
+
+        if not changed and ModelCatalog.query.count() > 0:
+            # Existing rows are already present; metadata refresh still applied above.
+            pass
         db.session.commit()
     except Exception:
         db.session.rollback()
