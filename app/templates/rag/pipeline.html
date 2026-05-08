@@ -749,14 +749,14 @@
             Manage Ask Settings
           </a>
         </div>
-        <select id="saved-prompt" class="mt-2 w-full border border-zinc-300 bg-white px-3 py-2 text-sm" x-model="selectedPromptId">
+        <select id="saved-prompt" class="mt-2 w-full border border-zinc-300 bg-white px-3 py-2 text-sm" x-model="selectedPromptId" @change="onPromptSelectionChange()">
           <option value="">Choose saved ask settings</option>
           <template x-for="prompt in savedPrompts" :key="prompt.id">
             <option :value="prompt.id" x-text="prompt.name"></option>
           </template>
         </select>
         <p class="mt-2 text-xs text-zinc-500" x-show="savedPrompts.length">
-          Load saved ask settings and prompt text into Query, then tweak them if needed before asking.
+          Choosing a saved ask setting loads its prompt text and query defaults immediately.
         </p>
         <p class="mt-2 text-xs text-zinc-500" x-show="!savedPrompts.length">
           No saved ask settings yet. Create one from Manage Ask Settings to reuse it here.
@@ -766,19 +766,20 @@
         <div class="flex flex-wrap gap-2">
           <button
             type="button"
-            class="rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm font-medium text-zinc-800 shadow-sm transition hover:border-emerald-500 hover:text-emerald-800 disabled:cursor-not-allowed disabled:opacity-60"
-            :disabled="!selectedPromptId"
-            @click="applySelectedPrompt()"
-          >
-            Load Settings
-          </button>
-          <button
-            type="button"
             class="rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm font-medium text-zinc-800 shadow-sm transition hover:border-zinc-400 disabled:cursor-not-allowed disabled:opacity-60"
             :disabled="!selectedPromptId"
             @click="clearSelectedPrompt()"
           >
             Clear
+          </button>
+          <button
+            type="button"
+            class="rounded-md border border-emerald-700 bg-emerald-700 px-3 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-emerald-800 disabled:cursor-not-allowed disabled:opacity-60"
+            x-show="!selectedPromptId && question.trim()"
+            x-cloak
+            @click="saveCurrentPrompt()"
+          >
+            Save Current
           </button>
         </div>
       </div>

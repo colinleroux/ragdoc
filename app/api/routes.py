@@ -16,7 +16,7 @@ from ..ingestion_presets import (
 )
 from ..errors import AppError
 from ..models import DataSource, DocumentChunk, EmbeddingRecord, Prompt, PromptRun, RunArtifact, RunEvaluation
-from ..prompts.presets import prompt_query_defaults
+from ..prompts.presets import prompt_query_defaults, store_prompt_query_defaults
 from ..rag.service import (
     answer_question,
     check_pipeline_settings,
@@ -311,6 +311,40 @@ def prompts():
         query = query.filter(Prompt.name != "Pipeline Ask")
     rows = query.all()
     return jsonify({"prompts": [_prompt_payload(prompt) for prompt in rows], "count": len(rows)})
+
+
+@api_bp.post("/prompts")
+def prompt_create():
+    body = request.get_json(silent=True) or {}
+    name = (body.get("name") or "").strip()
+    purpose = (body.get("purpose") or "").strip()
+    template = (body.get("template") or "").strip()
+
+    if not name:
+        raise AppError("Prompt name is required.", 400)
+    if not template:
+        raise AppError("Prompt template is required.", 400)
+
+    prompt = Prompt(name=name, purpose=purpose or None, template=template, version=1)
+    store_prompt_query_defaults(
+        prompt,
+        {
+            "answer_style": body.get("answer_style"),
+            "top_k": body.get("top_k"),
+            "max_sources": body.get("max_sources"),
+            "strictness": body.get("strictness"),
+            "min_semantic_score": body.get("min_semantic_score"),
+            "reasoning_mode": body.get("reasoning_mode"),
+        },
+    )
+    try:
+        db.session.add(prompt)
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        raise
+
+    return jsonify({"ok": True, "prompt": _prompt_payload(prompt)})
 
 
 @api_bp.get("/ingestion-presets")

@@ -313,9 +313,60 @@ Alpine.data("pipelineStatus", (initialConfig) => ({
     this.setNotice(`Loaded prompt "${prompt.name}" into Query.`);
   },
 
+  onPromptSelectionChange() {
+    if (!this.selectedPromptId) {
+      this.clearSelectedPrompt();
+      return;
+    }
+    this.applySelectedPrompt();
+  },
+
   clearSelectedPrompt() {
     this.selectedPromptId = "";
     this.setNotice("Using an ad hoc question instead of a saved prompt.");
+  },
+
+  async saveCurrentPrompt() {
+    const question = (this.question || "").trim();
+    if (!question) {
+      this.setNotice("Enter a question before saving ask settings.", "error");
+      return;
+    }
+
+    const suggestedName = question.length > 80 ? `${question.slice(0, 77)}...` : question;
+    const name = window.prompt("Name this saved ask setting.", suggestedName);
+    if (name === null) {
+      return;
+    }
+    const trimmedName = name.trim();
+    if (!trimmedName) {
+      this.setNotice("Saved ask setting name is required.", "error");
+      return;
+    }
+
+    const purpose = window.prompt("Optional purpose or note for this saved ask setting.", "") ?? "";
+
+    try {
+      const result = await fetchJson("/api/prompts", {
+        method: "POST",
+        body: JSON.stringify({
+          name: trimmedName,
+          purpose,
+          template: question,
+          answer_style: this.answerStyle,
+          top_k: this.topK,
+          max_sources: this.maxSources,
+          strictness: this.strictness,
+          min_semantic_score: this.minSemanticScore,
+          reasoning_mode: this.reasoningMode,
+        }),
+      });
+      await this.loadSavedPrompts();
+      this.selectedPromptId = String(result.prompt.id);
+      this.setNotice(`Saved ask settings "${result.prompt.name}".`);
+    } catch (error) {
+      this.setNotice(error.message, "error");
+    }
   },
 
   async setActiveIngestionPreset() {
