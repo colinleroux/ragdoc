@@ -121,6 +121,11 @@ def pipeline():
     )
 
 
+@rag_bp.route("/pipeline-help")
+def pipeline_help():
+    return render_template("rag/pipeline_help.html")
+
+
 @rag_bp.route("/question-compare")
 def question_compare():
     question = (request.args.get("question") or "").strip()

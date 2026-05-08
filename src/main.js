@@ -748,6 +748,26 @@ Alpine.data("pipelineStatus", (initialConfig) => ({
       this.setNotice(error.message, "error");
     }
   },
+
+  async removeAllCapturedRuns() {
+    const confirmed = window.confirm("Remove all captured answers? This deletes the stored run history, saved retrieved-source snapshots, and saved evaluation records for those runs.");
+    if (!confirmed) {
+      return;
+    }
+
+    try {
+      const result = await fetchJson("/api/ask-runs", { method: "DELETE" });
+      this.currentRun = null;
+      this.answer = "";
+      this.sources = [];
+      this.answerMeta = {};
+      this.askRuns = [];
+      this.setNotice(`Removed ${result.deleted_count} captured answers.`);
+      await this.refresh();
+    } catch (error) {
+      this.setNotice(error.message, "error");
+    }
+  },
 }));
 
 window.Alpine = Alpine;

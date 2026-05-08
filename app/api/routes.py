@@ -662,6 +662,21 @@ def ask_run_delete(run_id):
     return jsonify({"ok": True, "run_id": run_id, "name": run_name})
 
 
+@api_bp.delete("/ask-runs")
+def ask_runs_delete_all():
+    runs = PromptRun.query.order_by(PromptRun.created_at.desc()).all()
+    deleted_count = len(runs)
+    try:
+        for run in runs:
+            db.session.delete(run)
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        raise
+
+    return jsonify({"ok": True, "deleted_count": deleted_count})
+
+
 @api_bp.get("/ask-runs/export")
 def ask_runs_export():
     try:
