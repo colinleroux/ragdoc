@@ -1,0 +1,186 @@
+{% extends "layout.html" %}
+{% block title %}Question Comparison{% endblock %}
+{% block content %}
+<section class="py-8">
+  <div class="flex flex-wrap items-center gap-4 text-sm">
+    <a href="/rag/pipeline" class="font-medium text-emerald-700 hover:text-emerald-900">Back to pipeline answers</a>
+  </div>
+  <h1 class="mt-3 text-3xl font-bold text-zinc-950">Question Comparison</h1>
+  <p class="mt-3 max-w-4xl text-zinc-700">{{ question or "No question selected." }}</p>
+</section>
+
+<section class="space-y-5">
+  <section class="border border-zinc-200 bg-white p-5 shadow-sm">
+    <div class="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+      <div>
+        <h2 class="text-lg font-semibold text-zinc-950">Comparison Mode</h2>
+        <p class="mt-1 text-sm text-zinc-600">Hold the question constant and vary the dimension you want to inspect.</p>
+      </div>
+      <div class="grid grid-cols-1 gap-2 sm:grid-cols-3">
+        <a href="{{ url_for('rag.question_compare', question=question, group_by='model', model=selected_model or None) }}" class="{% if group_by == 'model' %}bg-zinc-900 text-white{% else %}border border-zinc-300 bg-white text-zinc-800 hover:border-zinc-400{% endif %} px-3 py-2 text-sm font-medium transition">
+          By model
+        </a>
+        <a href="{{ url_for('rag.question_compare', question=question, group_by='ask_settings', model=selected_model or None) }}" class="{% if group_by == 'ask_settings' %}bg-zinc-900 text-white{% else %}border border-zinc-300 bg-white text-zinc-800 hover:border-zinc-400{% endif %} px-3 py-2 text-sm font-medium transition">
+          By ask settings
+        </a>
+        <a href="{{ url_for('rag.question_compare', question=question, group_by='ingestion', model=selected_model or None) }}" class="{% if group_by == 'ingestion' %}bg-zinc-900 text-white{% else %}border border-zinc-300 bg-white text-zinc-800 hover:border-zinc-400{% endif %} px-3 py-2 text-sm font-medium transition">
+          By ingestion
+        </a>
+      </div>
+    </div>
+
+    {% if model_options %}
+    <div class="mt-4 border-t border-zinc-200 pt-4">
+      <p class="text-xs font-medium uppercase text-zinc-500">Model filter</p>
+      <div class="mt-2 flex flex-wrap gap-2">
+        <a
+          href="{{ url_for('rag.question_compare', question=question, group_by=group_by) }}"
+          class="{% if not selected_model %}bg-emerald-700 text-white{% else %}border border-zinc-300 bg-white text-zinc-800 hover:border-zinc-400{% endif %} rounded-md px-3 py-2 text-sm font-medium transition"
+        >
+          All models
+        </a>
+        {% for model in model_options %}
+        <a
+          href="{{ url_for('rag.question_compare', question=question, group_by=group_by, model=model) }}"
+          class="{% if selected_model == model %}bg-emerald-700 text-white{% else %}border border-zinc-300 bg-white text-zinc-800 hover:border-zinc-400{% endif %} rounded-md px-3 py-2 text-sm font-medium transition"
+        >
+          {{ model }}
+        </a>
+        {% endfor %}
+      </div>
+    </div>
+    {% endif %}
+  </section>
+
+  <section class="border border-zinc-200 bg-white shadow-sm">
+    <div class="flex items-center justify-between border-b border-zinc-200 px-4 py-3">
+      <h2 class="text-lg font-semibold text-zinc-950">Comparison Summary</h2>
+      <span class="text-sm text-zinc-600">{{ comparison_rows|length }} groups</span>
+    </div>
+    {% if comparison_rows %}
+    <div class="overflow-x-auto">
+      <table class="min-w-full divide-y divide-zinc-200 text-sm">
+        <thead class="bg-zinc-50 text-left text-xs font-semibold uppercase text-zinc-600">
+          <tr>
+            <th class="px-4 py-3">
+              {% if group_by == 'model' %}
+              Model
+              {% elif group_by == 'ask_settings' %}
+              Ask settings
+              {% else %}
+              Ingestion preset
+              {% endif %}
+            </th>
+            <th class="px-4 py-3 text-right">Runs</th>
+            <th class="px-4 py-3">Satisfactory</th>
+            <th class="px-4 py-3">Avg Score</th>
+            <th class="px-4 py-3">Avg Latency</th>
+            <th class="px-4 py-3">Judge Labels</th>
+            <th class="px-4 py-3">Latest</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-zinc-100">
+          {% for row in comparison_rows %}
+          {% set score_width = (row.avg_score * 100)|round(1) if row.avg_score is not none else 0 %}
+          {% set latency_width = ((row.avg_latency_ms / max_latency_ms) * 100)|round(1) if row.avg_latency_ms and max_latency_ms else 0 %}
+          <tr>
+            <td class="max-w-[520px] px-4 py-3 align-top">
+              <p class="font-medium text-zinc-950">{{ row.label }}</p>
+              {% if group_by != 'model' %}
+              <p class="mt-1 text-xs text-zinc-500">{{ row.models|join(", ") }}</p>
+              {% endif %}
+            </td>
+            <td class="px-4 py-3 text-right text-zinc-700">{{ row.run_count }}</td>
+            <td class="px-4 py-3 text-zinc-700">
+              {% if row.satisfactory_rate is not none %}
+              {{ row.satisfied_count }}/{{ row.rated_count }} ({{ "%.0f%%"|format(row.satisfactory_rate * 100) }})
+              {% else %}
+              -
+              {% endif %}
+            </td>
+            <td class="px-4 py-3">
+              <div class="flex items-center gap-3">
+                <div class="h-2 w-28 overflow-hidden rounded-full bg-zinc-100">
+                  <div class="h-full rounded-full bg-emerald-600" style="width: {{ score_width }}%"></div>
+                </div>
+                <span class="text-zinc-700">{{ "%.3f"|format(row.avg_score) if row.avg_score is not none else "-" }}</span>
+              </div>
+            </td>
+            <td class="px-4 py-3">
+              <div class="flex items-center gap-3">
+                <div class="h-2 w-28 overflow-hidden rounded-full bg-zinc-100">
+                  <div class="h-full rounded-full bg-sky-600" style="width: {{ latency_width }}%"></div>
+                </div>
+                <span class="text-zinc-700">{{ "%.1fs"|format(row.avg_latency_ms / 1000) if row.avg_latency_ms is not none else "-" }}</span>
+              </div>
+            </td>
+            <td class="px-4 py-3 text-zinc-700">{{ row.judge_labels|join(", ") if row.judge_labels else "-" }}</td>
+            <td class="px-4 py-3 text-zinc-700">{{ row.latest_run_at.strftime("%Y-%m-%d %H:%M") if row.latest_run_at else "-" }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <p class="px-4 py-8 text-sm text-zinc-600">No matching runs found for this question yet.</p>
+    {% endif %}
+  </section>
+
+  <section class="border border-zinc-200 bg-white shadow-sm">
+    <div class="flex items-center justify-between border-b border-zinc-200 px-4 py-3">
+      <h2 class="text-lg font-semibold text-zinc-950">Matching Runs</h2>
+      <span class="text-sm text-zinc-600">{{ runs|length }} shown</span>
+    </div>
+    {% if runs %}
+    <div class="overflow-x-auto">
+      <table class="min-w-full divide-y divide-zinc-200 text-sm">
+        <thead class="bg-zinc-50 text-left text-xs font-semibold uppercase text-zinc-600">
+          <tr>
+            <th class="px-4 py-3">Run</th>
+            <th class="px-4 py-3">Model</th>
+            <th class="px-4 py-3">Ask settings</th>
+            <th class="px-4 py-3">Ingestion</th>
+            <th class="px-4 py-3 text-right">Top Score</th>
+            <th class="px-4 py-3 text-right">Latency</th>
+            <th class="px-4 py-3">Rating</th>
+            <th class="px-4 py-3">Judge</th>
+            <th class="px-4 py-3">Created</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-zinc-100">
+          {% for run in runs %}
+          {% set score = run_top_score(run) %}
+          {% set satisfactory = run_satisfactory(run) %}
+          {% set judge_label = run_judge_label(run) %}
+          <tr>
+            <td class="max-w-[420px] px-4 py-3 align-top">
+              <p class="font-medium text-zinc-950">{{ run.name }}</p>
+              <p class="mt-1 text-xs text-zinc-500">{{ run.prompt.name if run.prompt else "Ad hoc" }}</p>
+            </td>
+            <td class="px-4 py-3 text-zinc-700">{{ run.model or "-" }}</td>
+            <td class="max-w-[360px] px-4 py-3 text-zinc-700">{{ ask_settings_signature(run) }}</td>
+            <td class="px-4 py-3 text-zinc-700">{{ run.input_json.get("ingestion_preset_name") if run.input_json else "-" }}</td>
+            <td class="px-4 py-3 text-right text-zinc-700">{{ "%.3f"|format(score) if score is not none else "-" }}</td>
+            <td class="px-4 py-3 text-right text-zinc-700">{{ "%.1fs"|format(run.latency_ms / 1000) if run.latency_ms else "-" }}</td>
+            <td class="px-4 py-3 text-zinc-700">
+              {% if satisfactory is sameas true %}
+              Satisfactory
+              {% elif satisfactory is sameas false %}
+              Not satisfactory
+              {% else %}
+              -
+              {% endif %}
+            </td>
+            <td class="px-4 py-3 text-zinc-700">{{ judge_label or "-" }}</td>
+            <td class="px-4 py-3 text-zinc-700">{{ run.created_at.strftime("%Y-%m-%d %H:%M") if run.created_at else "-" }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <p class="px-4 py-8 text-sm text-zinc-600">No matching runs found for this question yet.</p>
+    {% endif %}
+  </section>
+</section>
+{% endblock %}

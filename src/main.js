@@ -280,6 +280,14 @@ Alpine.data("pipelineStatus", (initialConfig) => ({
     return `Judge enabled with ${this.config.judge_provider}:${this.config.judge_model}.`;
   },
 
+  questionCompareUrl(run, groupBy = "model") {
+    const question = run?.input?.question || run?.name || "";
+    const params = new URLSearchParams();
+    params.set("question", question);
+    params.set("group_by", groupBy);
+    return `/rag/question-compare?${params.toString()}`;
+  },
+
   applySelectedPrompt() {
     const prompt = this.savedPrompts.find((item) => String(item.id) === String(this.selectedPromptId));
     if (!prompt) {
