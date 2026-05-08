@@ -4,7 +4,13 @@ from ..errors import AppError
 from ..extensions import db
 from ..ingestion_presets import get_active_ingestion_preset, ingestion_run_payload, latest_ingestion_run, preset_defaults
 from ..models import DataSource, DocumentChunk, EmbeddingRecord, IngestionRun
-from .chunking import chunk_text, content_hash, estimate_token_count, stable_id
+from .chunking import (
+    chunk_text,
+    constrain_chunk_for_embedding,
+    content_hash,
+    estimate_token_count,
+    stable_id,
+)
 from .embeddings import ollama_embed
 from .loaders import read_docs, relative_source_path
 from .vector_store import ensure_collection_ready, qdrant_delete_collection, qdrant_delete_sources, qdrant_upsert
@@ -59,67 +65,76 @@ def ingest_docs(cfg: Dict[str, Any]) -> Dict[str, Any]:
             page_num = doc.get("page")
             doc_type = doc.get("kind", "text")
             source_record = source_records[source]
+            chunk_index_counter = 0
 
-            for index, chunk in enumerate(
-                chunk_text(
-                    doc["text"],
-                    chunk_chars=preset_cfg["chunk_chars"],
-                    overlap=preset_cfg["overlap_chars"],
-                    split_strategy=preset_cfg["split_strategy"],
-                    min_chunk_chars=preset_cfg["min_chunk_chars"],
-                )
-            ):
-                chunk_count += 1
-                chunk_hash = content_hash(chunk)
-                vector = ollama_embed(chunk, cfg)
-                point_id = stable_id(f"{source}:{doc_type}:{page_num}:{index}:{chunk_hash}")
+            base_chunks = chunk_text(
+                doc["text"],
+                chunk_chars=preset_cfg["chunk_chars"],
+                overlap=preset_cfg["overlap_chars"],
+                split_strategy=preset_cfg["split_strategy"],
+                min_chunk_chars=preset_cfg["min_chunk_chars"],
+            )
 
-                chunk_record = DocumentChunk(
-                    data_source=source_record,
-                    chunk_index=index,
-                    content=chunk,
-                    token_count=estimate_token_count(chunk),
-                    metadata_json={
-                        "source": source,
-                        "page": page_num,
-                        "doc_type": doc_type,
-                        "content_hash": chunk_hash,
-                        "ingestion_preset_id": preset.id,
-                        "ingestion_preset_name": preset.name,
-                        "split_strategy": preset_cfg["split_strategy"],
-                    },
-                )
-                db.session.add(chunk_record)
-                db.session.flush()
-
-                vector_ref = f"qdrant:{cfg['COLLECTION_NAME']}:{point_id}"
-                db.session.add(
-                    EmbeddingRecord(
-                        chunk=chunk_record,
-                        provider="ollama",
-                        model=cfg["EMBED_MODEL"],
-                        dimensions=len(vector),
-                        vector_ref=vector_ref,
-                        metadata_json={"point_id": point_id, "collection": cfg["COLLECTION_NAME"]},
+            for parent_index, base_chunk in enumerate(base_chunks):
+                fitted_chunks = constrain_chunk_for_embedding(base_chunk, cfg["EMBED_MODEL"])
+                for sub_index, chunk in enumerate(fitted_chunks):
+                    chunk_count += 1
+                    chunk_hash = content_hash(chunk)
+                    vector = ollama_embed(chunk, cfg)
+                    point_id = stable_id(
+                        f"{source}:{doc_type}:{page_num}:{chunk_index_counter}:{chunk_hash}"
                     )
-                )
 
-                points.append(
-                    {
-                        "id": point_id,
-                        "vector": vector,
-                        "payload": {
+                    chunk_record = DocumentChunk(
+                        data_source=source_record,
+                        chunk_index=chunk_index_counter,
+                        content=chunk,
+                        token_count=estimate_token_count(chunk),
+                        metadata_json={
                             "source": source,
                             "page": page_num,
                             "doc_type": doc_type,
-                            "chunk_index": index,
-                            "text": chunk,
-                            "data_source_id": source_record.id,
-                            "document_chunk_id": chunk_record.id,
                             "content_hash": chunk_hash,
+                            "ingestion_preset_id": preset.id,
+                            "ingestion_preset_name": preset.name,
+                            "split_strategy": preset_cfg["split_strategy"],
+                            "parent_chunk_index": parent_index,
+                            "embedding_subchunk_index": sub_index,
+                            "embedding_model": cfg["EMBED_MODEL"],
                         },
-                    }
-                )
+                    )
+                    db.session.add(chunk_record)
+                    db.session.flush()
+
+                    vector_ref = f"qdrant:{cfg['COLLECTION_NAME']}:{point_id}"
+                    db.session.add(
+                        EmbeddingRecord(
+                            chunk=chunk_record,
+                            provider="ollama",
+                            model=cfg["EMBED_MODEL"],
+                            dimensions=len(vector),
+                            vector_ref=vector_ref,
+                            metadata_json={"point_id": point_id, "collection": cfg["COLLECTION_NAME"]},
+                        )
+                    )
+
+                    points.append(
+                        {
+                            "id": point_id,
+                            "vector": vector,
+                            "payload": {
+                                "source": source,
+                                "page": page_num,
+                                "doc_type": doc_type,
+                                "chunk_index": chunk_index_counter,
+                                "text": chunk,
+                                "data_source_id": source_record.id,
+                                "document_chunk_id": chunk_record.id,
+                                "content_hash": chunk_hash,
+                            },
+                        }
+                    )
+                    chunk_index_counter += 1
 
         for index in range(0, len(points), 64):
             qdrant_upsert(points[index : index + 64], cfg)

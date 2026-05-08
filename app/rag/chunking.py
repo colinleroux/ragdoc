@@ -2,6 +2,11 @@ import hashlib
 import re
 from typing import List
 
+EMBED_MODEL_LIMITS = {
+    "mxbai-embed-large": {"max_words": 320, "max_chars": 1200},
+    "nomic-embed-text": {"max_words": 1200, "max_chars": 4800},
+}
+
 
 def chunk_text(
     text: str,
@@ -114,3 +119,44 @@ def content_hash(text: str) -> str:
 
 def estimate_token_count(text: str) -> int:
     return len(text.split())
+
+
+def constrain_chunk_for_embedding(text: str, embed_model: str) -> List[str]:
+    text = (text or "").strip()
+    if not text:
+        return []
+
+    model_name = (embed_model or "").strip().lower()
+    limits = EMBED_MODEL_LIMITS.get(model_name)
+    if not limits:
+        return [text]
+
+    max_words = int(limits["max_words"])
+    max_chars = int(limits["max_chars"])
+
+    words = text.split()
+    if len(words) <= max_words and len(text) <= max_chars:
+        return [text]
+
+    chunks: List[str] = []
+    buffer_words: List[str] = []
+    buffer_char_count = 0
+
+    for word in words:
+        added_chars = len(word) if not buffer_words else len(word) + 1
+        would_exceed_words = len(buffer_words) + 1 > max_words
+        would_exceed_chars = buffer_char_count + added_chars > max_chars
+
+        if buffer_words and (would_exceed_words or would_exceed_chars):
+            chunks.append(" ".join(buffer_words).strip())
+            overlap_words = buffer_words[- min(20, len(buffer_words)) :]
+            buffer_words = overlap_words.copy()
+            buffer_char_count = len(" ".join(buffer_words))
+
+        buffer_words.append(word)
+        buffer_char_count = buffer_char_count + added_chars if buffer_char_count else len(word)
+
+    if buffer_words:
+        chunks.append(" ".join(buffer_words).strip())
+
+    return [chunk for chunk in chunks if chunk]
